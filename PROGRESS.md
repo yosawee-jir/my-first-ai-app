@@ -46,6 +46,11 @@
 - Remaining:
 - Next command to run (if any):
 
+- Task: Fix CSV import — handle Excel serial date numbers
+  - frontend/src/components/AssetTable.jsx — excelSerialToMMDDYYYY() + updated parseDateMMDDYYYY()
+  - Handles: integer serial (45925), decimal serial (45925.0000462963), and string mm/dd/yyyy
+  - Build: ✅ 481 modules, no errors | Test: ✅ all 3 date formats imported correctly
+
 - Task: Data Integrity + Mandatory Fields + CSV Import/Error Log + Data Sanitization
   - backend/routes/equipment.js — MANDATORY_LABELS, requireAll validation, serial_number uniqueness check in POST+PUT
   - frontend/src/components/AssetForm.jsx — required asterisk on 6 fields, frontend validation, trim-on-submit

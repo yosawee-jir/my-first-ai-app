@@ -3,6 +3,35 @@
 
 ---
 
+### ✅ งาน: แก้ไข CSV Import — รองรับ Excel Serial Date Number
+**วันที่:** 2026-05-04
+
+#### สิ่งที่ทำ
+- เพิ่ม helper function `excelSerialToMMDDYYYY()` ใน `AssetTable.jsx`
+  - แปลง Excel serial date (เช่น `45925` หรือ `45925.0000462963`) กลับเป็น `mm/dd/yyyy`
+  - ใช้สูตร UTC: `(Math.floor(serial) - 25569) * 86400 * 1000` (คำนึงถึง leap-year bug ของ Excel)
+- อัปเดต `parseDateMMDDYYYY()` ให้ตรวจสอบ input ก่อน:
+  1. ถ้าเป็นตัวเลข (integer หรือ decimal) → แปลงผ่าน `excelSerialToMMDDYYYY()` ก่อน แล้วจึง parse
+  2. ถ้าเป็น string → ใช้ logic เดิม (validate format `mm/dd/yyyy`)
+
+#### ไฟล์ที่มีการแก้ไข
+| ไฟล์ | การเปลี่ยนแปลง |
+|------|---------------|
+| `frontend/src/components/AssetTable.jsx` | เพิ่ม `excelSerialToMMDDYYYY()`, อัปเดต `parseDateMMDDYYYY()` |
+
+#### พฤติกรรมที่เปลี่ยนไปของระบบ
+- CSV import รองรับวันที่ 3 รูปแบบโดยอัตโนมัติ:
+  - **Excel serial integer**: `45925` → `2025-09-25`
+  - **Excel serial decimal**: `45925.0000462963` → `2025-09-25`
+  - **String format**: `09/25/2025` → `2025-09-25` (เหมือนเดิม)
+- ผู้ใช้ไม่ต้อง format column วันที่ใน Excel ก่อน export — ระบบจัดการให้อัตโนมัติ
+
+#### ความเสี่ยง / หมายเหตุ
+- Excel serial ≤ 60 (ก่อนวันที่ 1 มี.ค. 1900) มีผลจาก leap-year bug ของ Excel แต่ไม่มีผลใช้งานจริง
+- Build ผ่าน 481 modules | ทดสอบกับ backend จริง: ✅ import 3 rows ทุก format ถูกต้อง
+
+---
+
 ### ✅ งาน: Data Integrity — Mandatory Fields, CSV Import พร้อม Error Log, และ Data Sanitization
 **วันที่:** 2026-05-04
 

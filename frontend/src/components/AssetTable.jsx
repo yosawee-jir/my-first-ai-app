@@ -39,9 +39,27 @@ const MANDATORY_CSV_LABELS = {
   purchase_date: 'Purchase Date',
 };
 
+function excelSerialToMMDDYYYY(serial) {
+  // Excel epoch is Jan 1 1900 = serial 1, with an off-by-one leap-year bug fixed by -25569
+  const utcMs = (Math.floor(parseFloat(serial)) - 25569) * 86400 * 1000;
+  const d = new Date(utcMs);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
+
 function parseDateMMDDYYYY(str) {
   if (!str) return '';
   const s = str.trim();
+  // Excel serial date exported from Excel/Sheets (e.g. "45925" or "45925.0000462963")
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const converted = excelSerialToMMDDYYYY(s);
+    const m = converted.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return `${m[3]}-${m[1]}-${m[2]}`;
+  }
+  // Standard mm/dd/yyyy string
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
   const [, mm, dd, yyyy] = m;
