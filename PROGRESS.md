@@ -5,6 +5,21 @@
 - (none)
 
 ## ✅ Completed
+- Task: Enhanced Error Log — multi-error collection per row + specific messages + enum validation
+  - frontend/src/components/AssetTable.jsx — handleImportNew + handleImportUpdate loops refactored
+  - Build: ✅ 481 modules, no errors
+
+- Task: Dual CSV Import (New + Bulk Update) + User Assignment + Multi-disk Storage
+  - backend/routes/equipment.js — PATCH /:id partial update endpoint + employee_id in POST checkout INSERT
+  - frontend/src/services/api.js — updateEquipmentPartial (PATCH)
+  - frontend/src/components/AssetTable.jsx — handleImportNew, handleImportUpdate, parseStorageCSV, parseRAMCSV, downloadNewTemplate, downloadUpdateTemplate, dual refs/state
+  - frontend/src/App.css — .btn-export.update style
+  - Build: ✅ 481 modules, no errors
+- Task: Fix Lifecycle tab blank — replace all direct new Date().toLocaleDateString() with formatDate()
+  - frontend/src/components/AssetDetailModal.jsx — purchase_date, warranty_expiry_date, created_at, updated_at
+  - Build: ✅ 481 modules, no errors
+
+## ✅ Completed
 - Task: Fix Active Checkouts / Assets data consistency bug
   - backend/routes/checkouts.js — GET driven by equipment.stock_status; PATCH handles orphan id=0
   - backend/routes/equipment.js — PUT syncs checkouts table on stock_status change

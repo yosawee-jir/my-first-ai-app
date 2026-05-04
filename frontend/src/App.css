@@ -85,7 +85,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .btn-export.pdf      { background: #ffebee; color: #c62828; }
 .btn-export.template { background: #f3f4f6; color: #374151; }
 .btn-export.import   { background: #ede9fe; color: #5b21b6; }
-.btn-export.import:disabled { opacity: .6; cursor: not-allowed; }
+.btn-export.update   { background: #fff7ed; color: #c2410c; }
+.btn-export.import:disabled, .btn-export.update:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ── Import result modal ── */
 .import-stats { display: flex; gap: 1rem; margin-bottom: .75rem; }

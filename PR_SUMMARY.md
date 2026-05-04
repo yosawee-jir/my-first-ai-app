@@ -3,6 +3,126 @@
 
 ---
 
+## ปรับปรุง Error Log ให้แสดงเหตุผลที่ชัดเจนและรวบรวมหลาย error ต่อแถว
+
+### สิ่งที่ทำ
+ปรับปรุงระบบ CSV Import ให้เก็บ error ทุกรายการต่อแถวแทนที่จะหยุดที่ error แรก และเพิ่มข้อความแจ้งเตือนที่ระบุชื่อฟิลด์และค่าที่มีปัญหาอย่างชัดเจน
+
+#### การเปลี่ยนแปลงหลัก
+
+1. **Multi-error Collection** — แทนที่จะหยุดที่ error แรก ระบบจะตรวจสอบทุก validation rule ก่อน จากนั้นรวม error ทั้งหมดเป็นข้อความเดียวคั่นด้วย `; `
+
+2. **ข้อความแสดงผลที่ชัดเจน**:
+   - Mandatory: `Required field "Purchase Date" is missing`
+   - Enum: `Stock Status must be 'Available' or 'Checked Out' (got: 'xyz')`
+   - Enum: `Condition must be one of: Ready, Broken, Under Repair, Retired (got: 'abc')`
+   - Date: `Invalid Purchase Date '13/40/2024' — expected mm/dd/yyyy format`
+   - Date: `Invalid Warranty Expiry Date '...' — expected mm/dd/yyyy format`
+   - Duplicate: `Duplicate Asset Code: IT-001`
+   - Not found: `Asset Code "IT-999" not found in system`
+   - Assignment: `Staff Name is required when Stock Status is Checked Out`
+
+3. **Enum Validation บน Frontend** — ตรวจสอบ Stock Status และ Condition ก่อนส่ง backend (ลด round trip)
+
+4. **Backend Errors array** — รองรับ `err.response.data.errors[]` (array) join ด้วย `; ` แทนใช้เฉพาะ `.error`
+
+5. **Preserve Original Row** — `downloadErrorLogCSV` เก็บ column ทั้งหมดจากไฟล์ต้นฉบับ (ไม่มีการเปลี่ยนแปลง แต่ยืนยันว่าทำงานถูกต้อง)
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx`
+  - `handleImportNew`: refactor loop ให้ใช้ `rowErrors[]` array + apply parsed dates หลัง validation pass
+  - `handleImportUpdate`: refactor loop เช่นเดียวกัน + ตรวจสอบ effectiveStock/effectiveUser สำหรับ Checked Out
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- Error Log CSV แสดงเหตุผลครบทุกปัญหาในแถวเดียว แทนที่จะแสดงเพียงปัญหาแรก
+- UI popup แสดง error message ที่อ่านเข้าใจได้ เช่น `IT-001: Required field "Serial Number" is missing; Duplicate Asset Code: IT-001`
+- ผู้ใช้สามารถ download error log, แก้ไขข้อมูลในไฟล์ต้นฉบับ แล้ว re-upload ได้ทันที
+
+### ความเสี่ยง / หมายเหตุ
+- ไม่กระทบ logic การ import ที่สำเร็จ — row ที่ผ่านทุก validation จะส่งไปยัง backend ตามปกติ
+- Build: ✅ 481 modules, no errors
+
+---
+
+## ระบบ CSV Import แบบคู่: Import New Assets + Bulk Update Assets พร้อม User Assignment และ Multi-disk Storage
+
+### สิ่งที่ทำ
+ยกระดับระบบ CSV Import จากปุ่มเดียวเป็นสองโหมดแยกกัน พร้อมรองรับการ assign ผู้ใช้งานและการ parse ข้อมูล Storage จาก comma-separated string
+
+#### 1. Dual Import System
+- เพิ่มปุ่ม **⬆ Import New** สำหรับสร้าง asset ใหม่ และ **⬆ Bulk Update** สำหรับอัปเดต asset ที่มีอยู่แล้วโดยใช้ Asset Code เป็น key
+- เพิ่มปุ่มดาวน์โหลด template แยกกัน: **⬇ New Template** และ **⬇ Update Template**
+- Bulk Update mode: หากไม่พบ Asset Code ในระบบ → บันทึกเป็น error row
+- Partial Update: ส่งเฉพาะ field ที่มีค่าใน CSV ไปยัง backend (PATCH endpoint) — field ที่ว่างไม่เขียนทับค่าเดิม
+
+#### 2. User Assignment & Ownership Tracking
+- template รองรับ columns: **Staff Name**, **Staff ID**, **Department**
+- หากมี Staff Name หรือ Staff ID → Stock Status จะถูก set เป็น "Checked Out" อัตโนมัติ (ทั้งสองโหมด)
+- backend PATCH endpoint สร้าง/ปิด checkout record และบันทึก history ทุกครั้งที่มีการ assign ผู้ใช้ใหม่
+- Staff ID (employee code string) ถูกบันทึกลงใน `checkouts.employee_id` ทั้ง POST และ PATCH
+
+#### 3. Multi-disk Storage (Comma-separated)
+- เพิ่ม helper `parseStorageCSV()`: แปลง `"512GB SSD, 1TB HDD"` → JSON `[{size:"512GB",type:"SSD"},{size:"1TB",type:"HDD"}]`
+- เพิ่ม helper `parseRAMCSV()`: แปลง `"16GB, 8GB"` → JSON `["16GB","8GB"]`
+- รองรับทั้งรูปแบบ "ขนาด ชนิด" (`512GB SSD`) และ "ชนิด ขนาด" (`SSD 512GB`)
+
+#### 4. Data Integrity
+- Mandatory fields สำหรับ New mode: Asset Code, Serial Number, Asset Name, Type, Purchase Date (5 fields — ตัด Stock Status ออก เพราะ auto-derive จาก Staff)
+- Update mode: ต้องการเฉพาะ Asset Code สำหรับ lookup
+- Validation, date parsing, duplicate check และ error log ครบถ้วนทั้งสองโหมด
+
+### ไฟล์ที่มีการแก้ไข
+- `backend/routes/equipment.js`
+  - POST: เพิ่ม `f.assigned_employee_id` ใน checkout INSERT
+  - เพิ่ม `PATCH /:id` endpoint สำหรับ partial update (merge กับค่าเดิม, ตรวจสอบ enum, สร้าง/ปิด checkout, บันทึก history)
+- `frontend/src/services/api.js` — เพิ่ม `updateEquipmentPartial` (PATCH)
+- `frontend/src/components/AssetTable.jsx`
+  - เพิ่ม `staff name`, `staff id`, `department`, `ram`, `asset type` ใน CSV_HEADER_MAP
+  - แยก mandatory fields เป็น `MANDATORY_NEW_FIELDS` (5 fields)
+  - เพิ่ม helpers: `parseStorageCSV`, `parseRAMCSV`, `parseCSVFile`, `mapRow`, `applyStorageAndRAM`
+  - แทนที่ `downloadCSVTemplate` ด้วย `downloadNewTemplate` + `downloadUpdateTemplate`
+  - แทนที่ `handleImportFile` ด้วย `handleImportNew` + `handleImportUpdate`
+  - UI: 4 ปุ่ม import/template + file inputs แยกกัน + modal แสดงผลตาม mode
+- `frontend/src/App.css` — เพิ่ม `.btn-export.update` style (สีส้ม)
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- ผู้ใช้สามารถเลือกโหมด Import ได้ชัดเจน: สร้างใหม่ หรืออัปเดต bulk
+- การอัปเดตแบบ partial: field ว่างใน CSV ไม่เขียนทับข้อมูลเดิมในฐานข้อมูล
+- การกำหนด Staff ผ่าน CSV สร้าง checkout record ใน ownership history อัตโนมัติ
+- Storage หลาย disk สามารถนำเข้าได้ด้วย comma-separated string เดียว
+
+### ความเสี่ยง / หมายเหตุ
+- PATCH endpoint ไม่มี `requireAll` validation — ใช้ inline validation เฉพาะ enum + Checked Out rule เพื่อรองรับ partial update ได้อย่างถูกต้อง
+- `parseStorageCSV` ใช้ regex ตรวจจับขนาด (GB/TB/MB/KB) — รูปแบบที่ไม่ตรง pattern จะถูก fallback เป็น `{size: original, type: "Other"}`
+- Build: ✅ 481 modules, no errors
+
+---
+
+## แก้ไข Lifecycle Tab แสดงผลว่างเปล่า (Invalid Date จาก SQLite timestamp)
+
+### สิ่งที่ทำ
+แก้ไขปัญหา Lifecycle tab ใน Asset Detail Modal แสดงผลว่างเปล่าทั้งหน้า เนื่องจาก SQLite จัดเก็บ timestamp ในรูปแบบ `'2026-05-04 13:53:31'` (คั่นด้วย space ไม่ใช่ `T`) ซึ่งทำให้ browser บางตัว (เช่น Safari) parse เป็น `Invalid Date` และเมื่อเรียก `.toLocaleDateString()` บน Invalid Date จะ throw `RangeError: Invalid time value` ทำให้ React crash ทั้ง tab
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetDetailModal.jsx`
+  - เพิ่ม helper function `formatDate(val)` ที่แทนที่ space ด้วย `T` ก่อน parse และตรวจสอบ `isNaN` ก่อน format
+  - แทนที่ทุก `new Date(x).toLocaleDateString()` ใน Lifecycle tab ด้วย `formatDate(x)`:
+    - `asset.purchase_date`
+    - `asset.warranty_expiry_date`
+    - `asset.created_at`
+    - `asset.updated_at`
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- Lifecycle tab แสดงผลวันที่ถูกต้องแทนที่จะ crash และแสดงหน้าว่าง
+- ป้องกัน RangeError ในทุก browser ที่ parse ISO date แบบ strict
+- หากวันที่ไม่ถูกต้องหรือเป็น null จะแสดง `Row` นั้น skip โดยอัตโนมัติ (Row component คืน null เมื่อ value เป็น null)
+
+### ความเสี่ยง / หมายเหตุ
+- ไม่มีความเสี่ยง: เป็น defensive fix ที่ไม่กระทบ logic อื่น
+- Build: ✅ 481 modules, no errors
+
+---
+
 ### ✅ งาน: แก้ไข CSV Import — รองรับวันที่ไม่มี leading zero และ JS Date object จาก XLSX
 **วันที่:** 2026-05-04
 

@@ -175,7 +175,7 @@ router.post('/', upload.single('photo'), (req, res) => {
     );
     if (insertStockStatus === 'Checked Out' && item.assigned_user_name) {
       db.prepare('INSERT INTO checkouts (equipment_id,user_id,employee_name,employee_id,department,purpose) VALUES (?,?,?,?,?,?)')
-        .run(item.id, item.assigned_user_id || null, item.assigned_user_name, '', item.assigned_department || '', item.assigned_purpose || '');
+        .run(item.id, item.assigned_user_id || null, item.assigned_user_name, f.assigned_employee_id || '', item.assigned_department || '', item.assigned_purpose || '');
       db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
         item.id, 'Checked Out', `Assigned to ${item.assigned_user_name} via asset creation`
       );
@@ -276,6 +276,112 @@ router.put('/:id', upload.single('photo'), (req, res) => {
             .run(eqId, 'Returned', `Returned — previously assigned to ${prev.assigned_user_name || 'Unknown'}`);
         } else {
           db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(eqId, 'Updated', 'Asset details updated');
+        }
+      }
+    })();
+
+    res.json(db.prepare(`SELECT ${COLS} FROM equipment WHERE id=?`).get(eqId));
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Asset code already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Partial update — used by bulk CSV import. Empty fields keep existing values.
+router.patch('/:id', upload.single('photo'), (req, res) => {
+  try {
+    const prev = db.prepare('SELECT * FROM equipment WHERE id=?').get(req.params.id);
+    if (!prev) return res.status(404).json({ error: 'Not found' });
+
+    const raw = trimFields(req.body);
+    // pick: use non-empty CSV value, else fall back to existing column value
+    const p = key => (raw[key] !== undefined && raw[key] !== '' && raw[key] !== null) ? raw[key] : prev[key];
+
+    const newStockStatus = p('stock_status') || 'Available';
+    const clearAssigned  = newStockStatus !== 'Checked Out';
+    const stockChanged   = newStockStatus !== prev.stock_status;
+    const newUserName    = clearAssigned ? '' : (p('assigned_user_name') || '');
+
+    if (raw.stock_status && !VALID_STOCK_STATUS.includes(raw.stock_status))
+      return res.status(400).json({ error: `stock_status must be one of: ${VALID_STOCK_STATUS.join(', ')}` });
+    if (raw.status && !VALID_STATUS.includes(raw.status))
+      return res.status(400).json({ error: `status must be one of: ${VALID_STATUS.join(', ')}` });
+    if (newStockStatus === 'Checked Out' && !newUserName.trim())
+      return res.status(400).json({ error: 'assigned_user_name is required when stock_status is Checked Out' });
+
+    const eqId = Number(req.params.id);
+
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE equipment SET
+          asset_code=?,name=?,model=?,serial_number=?,type=?,brand=?,
+          os=?,memory=?,storage=?,photo=?,stock_status=?,status=?,
+          purchase_date=?,purchase_price=?,warranty_expiry_date=?,
+          assigned_user_id=?,assigned_user_name=?,assigned_department=?,assigned_purpose=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `).run(
+        p('asset_code'), p('name'), p('model') || '', p('serial_number'),
+        p('type') || '', p('brand') || '',
+        p('os')      || 'N/A',
+        p('memory')  || 'N/A',
+        p('storage') || 'N/A',
+        req.file ? req.file.filename : prev.photo,
+        newStockStatus,
+        p('status') || 'Ready',
+        p('purchase_date')        || null,
+        raw.purchase_price        ? Number(raw.purchase_price) : (prev.purchase_price || null),
+        p('warranty_expiry_date') || null,
+        clearAssigned ? null : (raw.assigned_user_id ? Number(raw.assigned_user_id) : (prev.assigned_user_id || null)),
+        clearAssigned ? '' : newUserName,
+        clearAssigned ? '' : (p('assigned_department') || ''),
+        clearAssigned ? '' : (p('assigned_purpose')    || ''),
+        eqId
+      );
+
+      if (newStockStatus === 'Checked Out') {
+        const uName    = newUserName;
+        const uEmpId   = raw.assigned_employee_id || '';
+        const uId      = raw.assigned_user_id ? Number(raw.assigned_user_id) : (prev.assigned_user_id || null);
+        const uDept    = p('assigned_department') || '';
+        const uPurpose = p('assigned_purpose')    || '';
+        const userChanged = raw.assigned_user_name !== undefined &&
+                            (raw.assigned_user_name || '') !== (prev.assigned_user_name || '');
+
+        const active = db.prepare(
+          'SELECT * FROM checkouts WHERE equipment_id=? AND return_date IS NULL ORDER BY id DESC LIMIT 1'
+        ).get(eqId);
+
+        if (!active) {
+          db.prepare('INSERT INTO checkouts (equipment_id,user_id,employee_name,employee_id,department,purpose) VALUES (?,?,?,?,?,?)')
+            .run(eqId, uId, uName || 'Unknown', uEmpId, uDept, uPurpose);
+          db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
+            eqId, 'Checked Out', `Assigned to ${uName || 'Unknown'}${uDept ? ' (' + uDept + ')' : ''} via CSV import`
+          );
+        } else if (stockChanged || userChanged) {
+          db.prepare('UPDATE checkouts SET return_date=CURRENT_TIMESTAMP WHERE id=?').run(active.id);
+          db.prepare('INSERT INTO checkouts (equipment_id,user_id,employee_name,employee_id,department,purpose) VALUES (?,?,?,?,?,?)')
+            .run(eqId, uId, uName || 'Unknown', uEmpId, uDept, uPurpose);
+          db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
+            eqId, stockChanged ? 'Checked Out' : 'Re-assigned',
+            `Assigned to ${uName || 'Unknown'}${uDept ? ' (' + uDept + ')' : ''} via CSV import`
+          );
+        } else {
+          db.prepare('UPDATE checkouts SET department=?, purpose=? WHERE id=?').run(uDept, uPurpose, active.id);
+          db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
+            eqId, 'Updated', 'Asset details updated via CSV import'
+          );
+        }
+      } else {
+        db.prepare('UPDATE checkouts SET return_date=CURRENT_TIMESTAMP WHERE equipment_id=? AND return_date IS NULL').run(eqId);
+        if (stockChanged) {
+          db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
+            eqId, 'Returned', `Returned via CSV import — previously ${prev.assigned_user_name || 'Unknown'}`
+          );
+        } else {
+          db.prepare('INSERT INTO history (equipment_id,action,details) VALUES (?,?,?)').run(
+            eqId, 'Updated', 'Asset details updated via CSV import'
+          );
         }
       }
     })();

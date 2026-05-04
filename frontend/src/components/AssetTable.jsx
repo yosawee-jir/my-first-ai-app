@@ -8,34 +8,41 @@ import CheckoutModal from './CheckoutModal.jsx';
 import QRModal       from './QRModal.jsx';
 import ImageLightbox     from './ImageLightbox.jsx';
 import AssetDetailModal  from './AssetDetailModal.jsx';
-import { getEquipment, deleteEquipment, getMasterData, createEquipment } from '../services/api.js';
+import { getEquipment, deleteEquipment, getMasterData, createEquipment, updateEquipmentPartial } from '../services/api.js';
 import { sortDropdownOptions } from '../utils/sortOptions.js';
 
 // ── CSV Import helpers ────────────────────────────────────────────────────────
 const CSV_HEADER_MAP = {
-  'asset code':            'asset_code',
-  'serial number':         'serial_number',
-  'asset name':            'name',
-  'name':                  'name',
-  'type':                  'type',
-  'brand':                 'brand',
-  'model':                 'model',
-  'stock status':          'stock_status',
-  'condition':             'status',
-  'os':                    'os',
-  'purchase date':         'purchase_date',
-  'purchase price':        'purchase_price',
-  'warranty expiry date':  'warranty_expiry_date',
-  'assigned user name':    'assigned_user_name',
+  'asset code':           'asset_code',
+  'serial number':        'serial_number',
+  'asset name':           'name',
+  'name':                 'name',
+  'type':                 'type',
+  'asset type':           'type',
+  'brand':                'brand',
+  'model':                'model',
+  'stock status':         'stock_status',
+  'condition':            'status',
+  'os':                   'os',
+  'ram':                  'memory',
+  'storage':              'storage',
+  'purchase date':        'purchase_date',
+  'purchase price':       'purchase_price',
+  'warranty expiry date': 'warranty_expiry_date',
+  'staff name':           'assigned_user_name',
+  'staff id':             'assigned_employee_id',
+  'department':           'assigned_department',
+  'purpose':              'assigned_purpose',
+  'assigned user name':   'assigned_user_name',
 };
 
-const MANDATORY_CSV_FIELDS = ['asset_code','serial_number','name','type','stock_status','purchase_date'];
+// Mandatory for NEW assets (stock_status is auto-derived; serial required to prevent dupes)
+const MANDATORY_NEW_FIELDS = ['asset_code','serial_number','name','type','purchase_date'];
 const MANDATORY_CSV_LABELS = {
   asset_code:    'Asset Code',
   serial_number: 'Serial Number',
   name:          'Asset Name',
   type:          'Type',
-  stock_status:  'Stock Status',
   purchase_date: 'Purchase Date',
 };
 
@@ -91,27 +98,74 @@ function downloadErrorLogCSV(errorRows, originalHeaders) {
   a.click();
 }
 
-function downloadCSVTemplate() {
+// Parse "512GB SSD, 1TB HDD" → [{size:"512GB",type:"SSD"},{size:"1TB",type:"HDD"}] JSON string
+function parseStorageCSV(str) {
+  if (!str || !str.trim()) return null;
+  const items = String(str).split(',').map(s => s.trim()).filter(Boolean);
+  if (!items.length) return null;
+  const disks = items.map(item => {
+    const m = item.match(/^(\d+(?:\.\d+)?\s*(?:GB|TB|MB|KB))\s+(.+)$/i);
+    if (m) return { size: m[1].trim(), type: m[2].trim() };
+    const m2 = item.match(/^(.+?)\s+(\d+(?:\.\d+)?\s*(?:GB|TB|MB|KB))$/i);
+    if (m2) return { type: m2[1].trim(), size: m2[2].trim() };
+    return { size: item, type: 'Other' };
+  });
+  return JSON.stringify(disks);
+}
+
+// Parse "16GB" or "16GB, 8GB" → ["16GB","8GB"] JSON string
+function parseRAMCSV(str) {
+  if (!str || !str.trim()) return null;
+  const items = String(str).split(',').map(s => s.trim()).filter(Boolean);
+  return items.length ? JSON.stringify(items) : null;
+}
+
+function makeCSV(headers, exampleRow) {
+  return [headers, exampleRow]
+    .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
+    .join('\r\n');
+}
+
+function downloadNewTemplate() {
   const headers = [
     'Asset Code*', 'Serial Number*', 'Asset Name*', 'Type*',
-    'Brand', 'Model', 'Stock Status*', 'Condition',
-    'OS', 'Purchase Date*', 'Purchase Price',
-    'Warranty Expiry Date', 'Assigned User Name',
+    'Brand', 'Model', 'Stock Status', 'Condition',
+    'OS', 'RAM', 'Storage',
+    'Purchase Date* (mm/dd/yyyy)', 'Purchase Price',
+    'Warranty Expiry Date (mm/dd/yyyy)',
+    'Staff Name', 'Staff ID', 'Department',
   ];
   const example = [
     'IT-2024-001', 'SN1234567', 'Dell Laptop Inspiron 15', 'Laptop',
     'Dell', 'Inspiron 15 3000', 'Available', 'Ready',
-    'Windows 11', '01/15/2024', '35000',
-    '01/15/2027', '',
+    'Windows 11', '16GB', '512GB SSD',
+    '01/15/2024', '35000', '01/15/2027',
+    '', '', '',
   ];
-  const csv = [headers, example]
-    .map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
-    .join('\r\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'asset_import_template.csv';
-  a.click();
+  const blob = new Blob(['﻿' + makeCSV(headers, example)], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'new_assets_template.csv'; a.click();
+}
+
+function downloadUpdateTemplate() {
+  const headers = [
+    'Asset Code*', 'Serial Number', 'Asset Name', 'Type',
+    'Brand', 'Model', 'Stock Status', 'Condition',
+    'OS', 'RAM', 'Storage',
+    'Purchase Date (mm/dd/yyyy)', 'Purchase Price',
+    'Warranty Expiry Date (mm/dd/yyyy)',
+    'Staff Name', 'Staff ID', 'Department',
+  ];
+  const example = [
+    'IT-2024-001', '', '', '',
+    '', '', 'Checked Out', '',
+    '', '', '',
+    '', '', '',
+    'John Doe', 'EMP001', 'IT Department',
+  ];
+  const blob = new Blob(['﻿' + makeCSV(headers, example)], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'bulk_update_template.csv'; a.click();
 }
 
 function formatMemory(memory) {
@@ -162,9 +216,11 @@ export default function AssetTable({ onRefresh }) {
   const [statusOpts, setStatusOpts] = useState([]);
 
   // ── Import state ───────────────────────────────────────────────────────────
-  const [importResult,  setImportResult]  = useState(null);
-  const [importing,     setImporting]     = useState(false);
-  const importFileRef = useRef();
+  const [importResult,    setImportResult]    = useState(null);
+  const [importingNew,    setImportingNew]    = useState(false);
+  const [importingUpdate, setImportingUpdate] = useState(false);
+  const importNewRef    = useRef();
+  const importUpdateRef = useRef();
 
   const toggleSort = key => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -227,125 +283,291 @@ export default function AssetTable({ onRefresh }) {
     }
   };
 
-  // ── CSV Import handler ─────────────────────────────────────────────────────
-  const handleImportFile = async e => {
+  // ── Shared CSV parse helper ────────────────────────────────────────────────
+  function parseCSVFile(buffer) {
+    const wb   = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+    if (rows.length < 2) return null;
+    const rawHeaders  = rows[0].map(h => String(h));
+    const normHeaders = rawHeaders.map(h =>
+      h.replace(/\s*\*.*$/, '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase()
+    );
+    const fieldKeys = normHeaders.map(h => CSV_HEADER_MAP[h] || null);
+    return { rows, rawHeaders, fieldKeys };
+  }
+
+  function mapRow(rows, rawHeaders, fieldKeys, i) {
+    const raw = {};
+    rawHeaders.forEach((h, idx) => { raw[h] = String(rows[i][idx] ?? '').trim(); });
+    const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
+    const mapped = {};
+    fieldKeys.forEach((key, idx) => {
+      if (!key) return;
+      const cell = rows[i][idx];
+      mapped[key] = DATE_FIELDS.has(key) ? (cell ?? '') : String(cell ?? '').trim();
+    });
+    return { raw, mapped };
+  }
+
+  function applyStorageAndRAM(mapped) {
+    if (mapped.storage?.trim()) {
+      const p = parseStorageCSV(mapped.storage);
+      if (p) mapped.storage = p;
+    }
+    if (mapped.memory?.trim()) {
+      const p = parseRAMCSV(mapped.memory);
+      if (p) mapped.memory = p;
+    }
+  }
+
+  // ── Import New Assets ──────────────────────────────────────────────────────
+  const handleImportNew = async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    setImporting(true);
+    setImportingNew(true);
     setImportResult(null);
 
     try {
-      const buffer = await file.arrayBuffer();
-      // cellDates:true → date-formatted cells come back as JS Date objects instead of serials
-      const wb     = XLSX.read(buffer, { type: 'array', cellDates: true });
-      const ws     = wb.Sheets[wb.SheetNames[0]];
-      const rows   = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-
-      if (rows.length < 2) {
-        setImportResult({ total: 0, imported: 0, errorRows: [], originalHeaders: [], message: 'CSV file is empty or has no data rows.' });
-        setImporting(false);
+      const parsed = parseCSVFile(await file.arrayBuffer());
+      if (!parsed) {
+        setImportResult({ mode: 'new', total: 0, imported: 0, errorRows: [], originalHeaders: [], message: 'File is empty or has no data rows.' });
+        setImportingNew(false);
         return;
       }
+      const { rows, rawHeaders, fieldKeys } = parsed;
 
-      const rawHeaders  = rows[0].map(h => String(h));
-      const normHeaders = rawHeaders.map(h =>
-        h.replace(/\s*\*.*$/, '')       // strip * and everything after (mandatory markers)
-         .replace(/\s*\([^)]*\)/g, '')  // strip (...) parenthetical hints like (mm/dd/yyyy)
-         .trim()
-         .toLowerCase()
-      );
-      const fieldKeys   = normHeaders.map(h => CSV_HEADER_MAP[h] || null);
-
-      // existing asset_code + serial_number sets for dup check
       const existingCodes   = new Set(assets.map(a => a.asset_code?.trim().toLowerCase()).filter(Boolean));
       const existingSerials = new Set(assets.map(a => a.serial_number?.trim().toLowerCase()).filter(Boolean));
       const batchCodes   = new Set();
       const batchSerials = new Set();
-
       let imported = 0;
       const errorRows = [];
 
-      for (let i = 1; i < rows.length; i++) {
-        const raw = {};
-        rawHeaders.forEach((h, idx) => { raw[h] = String(rows[i][idx] ?? '').trim(); });
+      const VALID_STOCKS      = ['Available', 'Checked Out'];
+      const VALID_CONDITIONS  = ['Ready', 'Broken', 'Under Repair', 'Retired'];
 
-        const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
-        const mapped = {};
-        fieldKeys.forEach((key, idx) => {
-          if (!key) return;
-          const cell = rows[i][idx];
-          // Preserve Date objects and numbers for date fields so parseDateMMDDYYYY can handle them
-          mapped[key] = DATE_FIELDS.has(key) ? (cell ?? '') : String(cell ?? '').trim();
+      for (let i = 1; i < rows.length; i++) {
+        const { raw, mapped } = mapRow(rows, rawHeaders, fieldKeys, i);
+        if (Object.values(raw).every(v => !v)) continue;
+
+        const rowErrors = [];
+
+        // Auto stock_status from staff
+        const hasStaff = mapped.assigned_user_name?.trim() || mapped.assigned_employee_id?.trim();
+        if (hasStaff && !mapped.stock_status) mapped.stock_status = 'Checked Out';
+        if (!mapped.stock_status) mapped.stock_status = 'Available';
+
+        // 1. Mandatory fields — one error message per missing field
+        MANDATORY_NEW_FIELDS.forEach(f => {
+          if (!mapped[f] && mapped[f] !== 0)
+            rowErrors.push(`Required field "${MANDATORY_CSV_LABELS[f]}" is missing`);
         });
 
-        // Check mandatory fields
-        const missing = MANDATORY_CSV_FIELDS.filter(f => !mapped[f]);
-        if (missing.length) {
-          errorRows.push({ raw, reason: `Missing required field(s): ${missing.map(f => MANDATORY_CSV_LABELS[f]).join(', ')}` });
-          continue;
-        }
+        // 2. Stock Status enum
+        if (mapped.stock_status && !VALID_STOCKS.includes(mapped.stock_status))
+          rowErrors.push(`Stock Status must be 'Available' or 'Checked Out' (got: '${mapped.stock_status}')`);
 
-        // Validate & parse purchase_date
-        const pd = parseDateMMDDYYYY(mapped.purchase_date);
-        if (pd === null) {
-          errorRows.push({ raw, reason: `Invalid Purchase Date "${mapped.purchase_date}" — use m/d/yyyy, mm/dd/yyyy, or leave Excel date format` });
-          continue;
-        }
-        mapped.purchase_date = pd;
+        // 3. Condition enum
+        if (mapped.status && !VALID_CONDITIONS.includes(mapped.status))
+          rowErrors.push(`Condition must be one of: ${VALID_CONDITIONS.join(', ')} (got: '${mapped.status}')`);
 
-        // Parse warranty_expiry_date if present
-        if (mapped.warranty_expiry_date) {
-          const wd = parseDateMMDDYYYY(mapped.warranty_expiry_date);
-          if (wd === null) {
-            errorRows.push({ raw, reason: `Invalid Warranty Expiry Date "${mapped.warranty_expiry_date}" — use m/d/yyyy, mm/dd/yyyy, or leave Excel date format` });
-            continue;
+        // 4. Purchase Date parse
+        let pdParsed = null;
+        if (mapped.purchase_date || mapped.purchase_date === 0) {
+          pdParsed = parseDateMMDDYYYY(mapped.purchase_date);
+          if (pdParsed === null) {
+            const dv = mapped.purchase_date instanceof Date
+              ? mapped.purchase_date.toLocaleDateString() : String(mapped.purchase_date);
+            rowErrors.push(`Invalid Purchase Date '${dv}' — expected mm/dd/yyyy format`);
           }
-          mapped.warranty_expiry_date = wd;
         }
 
-        // Duplicate Asset Code
-        const codeKey = mapped.asset_code.toLowerCase();
-        if (existingCodes.has(codeKey) || batchCodes.has(codeKey)) {
-          errorRows.push({ raw, reason: `Duplicate Asset Code: ${mapped.asset_code}` });
+        // 5. Warranty Date parse
+        let wdParsed = null;
+        if (mapped.warranty_expiry_date) {
+          wdParsed = parseDateMMDDYYYY(mapped.warranty_expiry_date);
+          if (wdParsed === null) {
+            const dv = mapped.warranty_expiry_date instanceof Date
+              ? mapped.warranty_expiry_date.toLocaleDateString() : String(mapped.warranty_expiry_date);
+            rowErrors.push(`Invalid Warranty Expiry Date '${dv}' — expected mm/dd/yyyy format`);
+          }
+        }
+
+        // 6. Duplicate Asset Code
+        const codeKey = mapped.asset_code?.toLowerCase() || '';
+        if (codeKey && (existingCodes.has(codeKey) || batchCodes.has(codeKey)))
+          rowErrors.push(`Duplicate Asset Code: ${mapped.asset_code}`);
+
+        // 7. Duplicate Serial Number
+        const snKey = mapped.serial_number?.toLowerCase() || '';
+        if (snKey && (existingSerials.has(snKey) || batchSerials.has(snKey)))
+          rowErrors.push(`Duplicate Serial Number: ${mapped.serial_number}`);
+
+        // 8. Checked Out without staff name
+        if (mapped.stock_status === 'Checked Out' && !mapped.assigned_user_name?.trim())
+          rowErrors.push('Staff Name is required when Stock Status is Checked Out');
+
+        if (rowErrors.length > 0) {
+          errorRows.push({ raw, reason: rowErrors.join('; ') });
           continue;
         }
 
-        // Duplicate Serial Number
-        const snKey = mapped.serial_number.toLowerCase();
-        if (existingSerials.has(snKey) || batchSerials.has(snKey)) {
-          errorRows.push({ raw, reason: `Duplicate Serial Number: ${mapped.serial_number}` });
-          continue;
-        }
+        // Apply parsed dates and structured fields
+        mapped.purchase_date = pdParsed;
+        if (wdParsed) mapped.warranty_expiry_date = wdParsed;
+        applyStorageAndRAM(mapped);
 
-        // Conditional: Checked Out requires assigned_user_name
-        if (mapped.stock_status === 'Checked Out' && !mapped.assigned_user_name?.trim()) {
-          errorRows.push({ raw, reason: 'Staff Name is required when Stock Status is Checked Out' });
-          continue;
-        }
-
-        // Send to backend
         try {
           const fd = new FormData();
-          Object.entries(mapped).forEach(([k, v]) => { if (v !== undefined) fd.append(k, v); });
-          if (!mapped.status)  fd.append('status', 'Ready');
-          if (!mapped.os)      fd.append('os', 'N/A');
+          Object.entries(mapped).forEach(([k, v]) => { if (v !== undefined && v !== '') fd.append(k, v); });
+          if (!mapped.status) fd.append('status', 'Ready');
+          if (!mapped.os)     fd.append('os', 'N/A');
           await createEquipment(fd);
           batchCodes.add(codeKey);
           batchSerials.add(snKey);
           imported++;
         } catch (err) {
-          const msg = err.response?.data?.error || 'Save failed';
+          const msg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Save failed';
           errorRows.push({ raw, reason: msg });
         }
       }
 
-      setImportResult({ total: rows.length - 1, imported, errorRows, originalHeaders: rawHeaders });
+      setImportResult({ mode: 'new', total: rows.length - 1, imported, errorRows, originalHeaders: rawHeaders });
       if (imported > 0) { load(); onRefresh(); }
     } catch (err) {
-      setImportResult({ total: 0, imported: 0, errorRows: [], originalHeaders: [], message: `Failed to parse file: ${err.message}` });
+      setImportResult({ mode: 'new', total: 0, imported: 0, errorRows: [], originalHeaders: [], message: `Failed to parse file: ${err.message}` });
     }
-    setImporting(false);
+    setImportingNew(false);
+  };
+
+  // ── Bulk Update Assets ─────────────────────────────────────────────────────
+  const handleImportUpdate = async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportingUpdate(true);
+    setImportResult(null);
+
+    try {
+      const parsed = parseCSVFile(await file.arrayBuffer());
+      if (!parsed) {
+        setImportResult({ mode: 'update', total: 0, imported: 0, errorRows: [], originalHeaders: [], message: 'File is empty or has no data rows.' });
+        setImportingUpdate(false);
+        return;
+      }
+      const { rows, rawHeaders, fieldKeys } = parsed;
+
+      // Build lookup map: asset_code (lowercase) → asset object
+      const assetByCode = {};
+      assets.forEach(a => { if (a.asset_code) assetByCode[a.asset_code.trim().toLowerCase()] = a; });
+
+      let imported = 0;
+      const errorRows = [];
+
+      const VALID_STOCKS_U     = ['Available', 'Checked Out'];
+      const VALID_CONDITIONS_U = ['Ready', 'Broken', 'Under Repair', 'Retired'];
+
+      for (let i = 1; i < rows.length; i++) {
+        const { raw, mapped } = mapRow(rows, rawHeaders, fieldKeys, i);
+        if (Object.values(raw).every(v => !v)) continue;
+
+        // Asset Code is the lookup key — must exist before anything else
+        if (!mapped.asset_code?.trim()) {
+          errorRows.push({ raw, reason: 'Required field "Asset Code" is missing' });
+          continue;
+        }
+
+        const existing = assetByCode[mapped.asset_code.trim().toLowerCase()];
+        if (!existing) {
+          errorRows.push({ raw, reason: `Asset Code "${mapped.asset_code}" not found in system` });
+          continue;
+        }
+
+        // Build payload: only non-empty CSV fields
+        const payload = {};
+        Object.entries(mapped).forEach(([k, v]) => {
+          const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
+          if (DATE_FIELDS.has(k)) {
+            if (v !== '' && v !== null && v !== undefined) payload[k] = v;
+          } else if (v !== '' && v !== null && v !== undefined) {
+            payload[k] = v;
+          }
+        });
+
+        const rowErrors = [];
+
+        // Enum: Stock Status (if provided)
+        if (payload.stock_status && !VALID_STOCKS_U.includes(payload.stock_status))
+          rowErrors.push(`Stock Status must be 'Available' or 'Checked Out' (got: '${payload.stock_status}')`);
+
+        // Enum: Condition (if provided)
+        if (payload.status && !VALID_CONDITIONS_U.includes(payload.status))
+          rowErrors.push(`Condition must be one of: ${VALID_CONDITIONS_U.join(', ')} (got: '${payload.status}')`);
+
+        // Purchase Date parse
+        let pdParsed = undefined;
+        if (payload.purchase_date !== undefined) {
+          pdParsed = parseDateMMDDYYYY(payload.purchase_date);
+          if (pdParsed === null) {
+            const dv = payload.purchase_date instanceof Date
+              ? payload.purchase_date.toLocaleDateString() : String(payload.purchase_date);
+            rowErrors.push(`Invalid Purchase Date '${dv}' — expected mm/dd/yyyy format`);
+          }
+        }
+
+        // Warranty Date parse
+        let wdParsed = undefined;
+        if (payload.warranty_expiry_date !== undefined) {
+          wdParsed = parseDateMMDDYYYY(payload.warranty_expiry_date);
+          if (wdParsed === null) {
+            const dv = payload.warranty_expiry_date instanceof Date
+              ? payload.warranty_expiry_date.toLocaleDateString() : String(payload.warranty_expiry_date);
+            rowErrors.push(`Invalid Warranty Expiry Date '${dv}' — expected mm/dd/yyyy format`);
+          }
+        }
+
+        // Auto stock_status from staff
+        const hasStaff = payload.assigned_user_name?.trim() || payload.assigned_employee_id?.trim();
+        if (hasStaff && !payload.stock_status) payload.stock_status = 'Checked Out';
+
+        // Checked Out requires a user name (either from CSV or already in system)
+        const effectiveStock = payload.stock_status || existing.stock_status;
+        if (effectiveStock === 'Checked Out') {
+          const effectiveUser = payload.assigned_user_name?.trim() || existing.assigned_user_name?.trim();
+          if (!effectiveUser) rowErrors.push('Staff Name is required when Stock Status is Checked Out');
+        }
+
+        if (rowErrors.length > 0) {
+          errorRows.push({ raw, reason: rowErrors.join('; ') });
+          continue;
+        }
+
+        // Apply parsed dates
+        if (pdParsed !== undefined) { if (pdParsed) payload.purchase_date = pdParsed; else delete payload.purchase_date; }
+        if (wdParsed !== undefined) { if (wdParsed) payload.warranty_expiry_date = wdParsed; else delete payload.warranty_expiry_date; }
+
+        // Parse storage and RAM
+        applyStorageAndRAM(payload);
+
+        try {
+          const fd = new FormData();
+          Object.entries(payload).forEach(([k, v]) => { if (v !== undefined && v !== null) fd.append(k, v); });
+          await updateEquipmentPartial(existing.id, fd);
+          imported++;
+        } catch (err) {
+          const msg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Update failed';
+          errorRows.push({ raw, reason: msg });
+        }
+      }
+
+      setImportResult({ mode: 'update', total: rows.length - 1, imported, errorRows, originalHeaders: rawHeaders });
+      if (imported > 0) { load(); onRefresh(); }
+    } catch (err) {
+      setImportResult({ mode: 'update', total: 0, imported: 0, errorRows: [], originalHeaders: [], message: `Failed to parse file: ${err.message}` });
+    }
+    setImportingUpdate(false);
   };
 
   // Export helpers
@@ -447,11 +669,16 @@ export default function AssetTable({ onRefresh }) {
       <div className="export-bar">
         <span className="result-count">{filtered.length} asset{filtered.length !== 1 ? 's' : ''} shown</span>
         <div className="export-buttons">
-          <button className="btn-export template" onClick={downloadCSVTemplate}>⬇ Template</button>
-          <button className="btn-export import"   onClick={() => importFileRef.current.click()} disabled={importing}>
-            {importing ? 'Importing...' : '⬆ Import CSV'}
+          <button className="btn-export template" onClick={downloadNewTemplate}>⬇ New Template</button>
+          <button className="btn-export template" onClick={downloadUpdateTemplate}>⬇ Update Template</button>
+          <button className="btn-export import"  onClick={() => importNewRef.current.click()}    disabled={importingNew || importingUpdate}>
+            {importingNew ? 'Importing...' : '⬆ Import New'}
           </button>
-          <input ref={importFileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImportFile} />
+          <button className="btn-export update"  onClick={() => importUpdateRef.current.click()} disabled={importingNew || importingUpdate}>
+            {importingUpdate ? 'Updating...' : '⬆ Bulk Update'}
+          </button>
+          <input ref={importNewRef}    type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={handleImportNew} />
+          <input ref={importUpdateRef} type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={handleImportUpdate} />
           <button className="btn-export csv"   onClick={exportCSV}>  ⬇ CSV</button>
           <button className="btn-export excel" onClick={exportExcel}>⬇ Excel</button>
           <button className="btn-export pdf"   onClick={exportPDF}>  ⬇ PDF</button>
@@ -576,7 +803,7 @@ export default function AssetTable({ onRefresh }) {
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setImportResult(null)}>
           <div className="modal-box" style={{ maxWidth: 480 }}>
             <div className="modal-header">
-              <h3>Import Results</h3>
+              <h3>{importResult.mode === 'update' ? 'Bulk Update Results' : 'Import Results'}</h3>
               <button className="modal-close" onClick={() => setImportResult(null)}>✕</button>
             </div>
             <div style={{ padding: '1.25rem 1.5rem' }}>
@@ -587,7 +814,7 @@ export default function AssetTable({ onRefresh }) {
                   <div className="import-stats">
                     <div className="import-stat success">
                       <span className="import-stat-num">{importResult.imported}</span>
-                      <span className="import-stat-label">Imported</span>
+                      <span className="import-stat-label">{importResult.mode === 'update' ? 'Updated' : 'Imported'}</span>
                     </div>
                     <div className="import-stat error">
                       <span className="import-stat-num">{importResult.errorRows.length}</span>
@@ -604,9 +831,10 @@ export default function AssetTable({ onRefresh }) {
                         {importResult.errorRows.length} row(s) were skipped:
                       </p>
                       <ul className="import-error-list">
-                        {importResult.errorRows.slice(0, 10).map((r, i) => (
-                          <li key={i}><strong>{r.raw['Asset Code*'] || r.raw['Asset Code'] || `Row ${i + 2}`}:</strong> {r.reason}</li>
-                        ))}
+                        {importResult.errorRows.slice(0, 10).map((r, i) => {
+                          const id = r.raw['Asset Code*'] || r.raw['Asset Code'] || `Row ${i + 2}`;
+                          return <li key={i}><strong>{id}:</strong> {r.reason}</li>;
+                        })}
                         {importResult.errorRows.length > 10 && (
                           <li style={{ color: '#6b7280' }}>…and {importResult.errorRows.length - 10} more</li>
                         )}

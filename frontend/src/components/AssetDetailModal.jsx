@@ -43,6 +43,15 @@ function Row({ label, value }) {
   );
 }
 
+// SQLite stores timestamps as "2026-05-04 13:53:31" (space separator).
+// Safari treats that as Invalid Date; replacing space→T fixes strict ISO parsing.
+// Returns null for missing/invalid input so Row skips the field gracefully.
+function formatDate(val) {
+  if (!val) return null;
+  const d = new Date(String(val).replace(' ', 'T'));
+  return isNaN(d.getTime()) ? null : d.toLocaleDateString();
+}
+
 function formatPrice(p) {
   if (p == null || p === '') return null;
   return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0 }).format(p);
@@ -158,14 +167,14 @@ export default function AssetDetailModal({ asset, onEdit, onClose }) {
             <div className="detail-grid">
               <div className="detail-section">
                 <div className="detail-section-title">Financial</div>
-                <Row label="Purchase Date"  value={asset.purchase_date ? new Date(asset.purchase_date).toLocaleDateString() : '—'} />
+                <Row label="Purchase Date"  value={formatDate(asset.purchase_date) || '—'} />
                 <Row label="Purchase Price" value={formatPrice(asset.purchase_price) || '—'} />
               </div>
               <div className="detail-section">
                 <div className="detail-section-title">Warranty</div>
                 {asset.warranty_expiry_date ? (
                   <>
-                    <Row label="Expiry Date" value={new Date(asset.warranty_expiry_date).toLocaleDateString()} />
+                    <Row label="Expiry Date" value={formatDate(asset.warranty_expiry_date)} />
                     {wInfo && (
                       <div className="detail-row">
                         <span className="detail-label">Status</span>
@@ -181,9 +190,9 @@ export default function AssetDetailModal({ asset, onEdit, onClose }) {
               </div>
               <div className="detail-section">
                 <div className="detail-section-title">Timestamps</div>
-                <Row label="Added"   value={new Date(asset.created_at).toLocaleDateString()} />
+                <Row label="Added"   value={formatDate(asset.created_at)} />
                 {asset.updated_at !== asset.created_at && (
-                  <Row label="Updated" value={new Date(asset.updated_at).toLocaleDateString()} />
+                  <Row label="Updated" value={formatDate(asset.updated_at)} />
                 )}
               </div>
             </div>

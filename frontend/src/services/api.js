@@ -7,7 +7,8 @@ export const getStats        = ()         => axios.get(`${BASE}/equipment/stats`
 export const getEquipment    = (params)   => axios.get(`${BASE}/equipment`, { params }).then(r => r.data);
 export const getEquipmentById= (id)       => axios.get(`${BASE}/equipment/${id}`).then(r => r.data);
 export const createEquipment = (fd)       => axios.post(`${BASE}/equipment`, fd).then(r => r.data);
-export const updateEquipment = (id, fd)   => axios.put(`${BASE}/equipment/${id}`, fd).then(r => r.data);
+export const updateEquipment        = (id, fd) => axios.put(`${BASE}/equipment/${id}`, fd).then(r => r.data);
+export const updateEquipmentPartial = (id, fd) => axios.patch(`${BASE}/equipment/${id}`, fd).then(r => r.data);
 export const deleteEquipment = (id)       => axios.delete(`${BASE}/equipment/${id}`).then(r => r.data);
 
 // ── Checkouts ────────────────────────────────────────────────────────────────
