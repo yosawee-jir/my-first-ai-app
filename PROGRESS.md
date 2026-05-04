@@ -46,10 +46,11 @@
 - Remaining:
 - Next command to run (if any):
 
-- Task: Fix CSV import — handle Excel serial date numbers
-  - frontend/src/components/AssetTable.jsx — excelSerialToMMDDYYYY() + updated parseDateMMDDYYYY()
-  - Handles: integer serial (45925), decimal serial (45925.0000462963), and string mm/dd/yyyy
-  - Build: ✅ 481 modules, no errors | Test: ✅ all 3 date formats imported correctly
+- Task: Fix CSV date parsing — flexible string, Excel serial, JS Date object, single-digit months
+  - frontend/src/components/AssetTable.jsx — parseDateMMDDYYYY handles Date objects + numbers + m/d/yyyy
+  - XLSX.read: cellDates:true so Excel date cells → Date objects; sheet_to_json: raw:true
+  - DATE_FIELDS set preserves raw values before stringify in field mapping
+  - Build: ✅ | Unit tests: ✅ 10/10 (single-digit, padded, serial int, serial decimal, Date obj, empty, invalid)
 
 - Task: Data Integrity + Mandatory Fields + CSV Import/Error Log + Data Sanitization
   - backend/routes/equipment.js — MANDATORY_LABELS, requireAll validation, serial_number uniqueness check in POST+PUT

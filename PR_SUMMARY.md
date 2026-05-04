@@ -3,6 +3,34 @@
 
 ---
 
+### ✅ งาน: แก้ไข CSV Import — รองรับวันที่ไม่มี leading zero และ JS Date object จาก XLSX
+**วันที่:** 2026-05-04
+
+#### สิ่งที่ทำ
+- อัปเดต `parseDateMMDDYYYY()` ให้รองรับ input 4 รูปแบบ:
+  1. **JS Date object** (XLSX คืนค่านี้เมื่อใช้ `cellDates: true`) → แปลงตรงจาก UTC
+  2. **Excel serial number** (integer หรือ decimal เช่น `45925`, `45925.0000462963`) → ผ่าน `excelSerialToMMDDYYYY()`
+  3. **String ไม่มี leading zero** เช่น `9/25/2025`, `1/5/2024` → regex `\d{1,2}` + padStart
+  4. **String มี leading zero** เช่น `09/25/2025` → เหมือนเดิม
+- เปลี่ยน `XLSX.read` options จาก `raw: false, cellText: true` → `cellDates: true` เพื่อให้ date cells คืน Date object สม่ำเสมอ
+- เพิ่ม `raw: true` ใน `sheet_to_json` เพื่อป้องกัน XLSX auto-format ค่าก่อน parser ทำงาน
+- เพิ่ม `DATE_FIELDS` set ใน field mapping — date fields ส่ง raw value (Date/number) เข้า parser โดยตรง ไม่ stringify ก่อน
+- อัปเดต error message ให้บอกว่ารับทั้ง `m/d/yyyy` และ `mm/dd/yyyy`
+
+#### ไฟล์ที่มีการแก้ไข
+| ไฟล์ | การเปลี่ยนแปลง |
+|------|---------------|
+| `frontend/src/components/AssetTable.jsx` | `parseDateMMDDYYYY()`, XLSX options, field mapping, error messages |
+
+#### พฤติกรรมที่เปลี่ยนไป
+- `9/25/2025` (ไม่มี leading zero) → ✅ รับได้ → `2025-09-25`
+- `1/5/2024` (เดือนและวันไม่มี 0 นำ) → ✅ รับได้ → `2024-01-05`
+- `09/25/2025` → ✅ รับได้เหมือนเดิม
+- Excel Date object จาก XLSX → ✅ รับได้
+- Unit tests: ✅ 10/10 ผ่านทุก case
+
+---
+
 ### ✅ งาน: แก้ไข CSV Import — รองรับ Excel Serial Date Number
 **วันที่:** 2026-05-04
 

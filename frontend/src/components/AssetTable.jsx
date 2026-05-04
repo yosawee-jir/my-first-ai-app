@@ -49,21 +49,33 @@ function excelSerialToMMDDYYYY(serial) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
-function parseDateMMDDYYYY(str) {
-  if (!str) return '';
-  const s = str.trim();
-  // Excel serial date exported from Excel/Sheets (e.g. "45925" or "45925.0000462963")
+function parseDateMMDDYYYY(val) {
+  if (!val && val !== 0) return '';
+
+  // JS Date object — XLSX returns these when cellDates:true is set
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null;
+    const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(val.getUTCDate()).padStart(2, '0');
+    return `${val.getUTCFullYear()}-${mm}-${dd}`;
+  }
+
+  const s = String(val).trim();
+  if (!s) return '';
+
+  // Excel serial number — integer or decimal (e.g. 45925 or "45925.0000462963")
   if (/^\d+(\.\d+)?$/.test(s)) {
     const converted = excelSerialToMMDDYYYY(s);
     const m = converted.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!m) return null;
     return `${m[3]}-${m[1]}-${m[2]}`;
   }
-  // Standard mm/dd/yyyy string
+
+  // m/d/yyyy or mm/dd/yyyy — with or without leading zeros (Excel default string export)
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
   const [, mm, dd, yyyy] = m;
-  return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+  return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
 }
 
 function downloadErrorLogCSV(errorRows, originalHeaders) {
@@ -83,8 +95,8 @@ function downloadCSVTemplate() {
   const headers = [
     'Asset Code*', 'Serial Number*', 'Asset Name*', 'Type*',
     'Brand', 'Model', 'Stock Status*', 'Condition',
-    'OS', 'Purchase Date* (mm/dd/yyyy)', 'Purchase Price',
-    'Warranty Expiry Date (mm/dd/yyyy)', 'Assigned User Name',
+    'OS', 'Purchase Date*', 'Purchase Price',
+    'Warranty Expiry Date', 'Assigned User Name',
   ];
   const example = [
     'IT-2024-001', 'SN1234567', 'Dell Laptop Inspiron 15', 'Laptop',
@@ -225,9 +237,10 @@ export default function AssetTable({ onRefresh }) {
 
     try {
       const buffer = await file.arrayBuffer();
-      const wb     = XLSX.read(buffer, { type: 'array', raw: false, cellText: true });
+      // cellDates:true → date-formatted cells come back as JS Date objects instead of serials
+      const wb     = XLSX.read(buffer, { type: 'array', cellDates: true });
       const ws     = wb.Sheets[wb.SheetNames[0]];
-      const rows   = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const rows   = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
 
       if (rows.length < 2) {
         setImportResult({ total: 0, imported: 0, errorRows: [], originalHeaders: [], message: 'CSV file is empty or has no data rows.' });
@@ -252,9 +265,13 @@ export default function AssetTable({ onRefresh }) {
         const raw = {};
         rawHeaders.forEach((h, idx) => { raw[h] = String(rows[i][idx] ?? '').trim(); });
 
+        const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
         const mapped = {};
         fieldKeys.forEach((key, idx) => {
-          if (key) mapped[key] = String(rows[i][idx] ?? '').trim();
+          if (!key) return;
+          const cell = rows[i][idx];
+          // Preserve Date objects and numbers for date fields so parseDateMMDDYYYY can handle them
+          mapped[key] = DATE_FIELDS.has(key) ? (cell ?? '') : String(cell ?? '').trim();
         });
 
         // Check mandatory fields
@@ -267,7 +284,7 @@ export default function AssetTable({ onRefresh }) {
         // Validate & parse purchase_date
         const pd = parseDateMMDDYYYY(mapped.purchase_date);
         if (pd === null) {
-          errorRows.push({ raw, reason: `Invalid Purchase Date format "${mapped.purchase_date}" — expected mm/dd/yyyy` });
+          errorRows.push({ raw, reason: `Invalid Purchase Date "${mapped.purchase_date}" — use m/d/yyyy, mm/dd/yyyy, or leave Excel date format` });
           continue;
         }
         mapped.purchase_date = pd;
@@ -276,7 +293,7 @@ export default function AssetTable({ onRefresh }) {
         if (mapped.warranty_expiry_date) {
           const wd = parseDateMMDDYYYY(mapped.warranty_expiry_date);
           if (wd === null) {
-            errorRows.push({ raw, reason: `Invalid Warranty Expiry Date format "${mapped.warranty_expiry_date}" — expected mm/dd/yyyy` });
+            errorRows.push({ raw, reason: `Invalid Warranty Expiry Date "${mapped.warranty_expiry_date}" — use m/d/yyyy, mm/dd/yyyy, or leave Excel date format` });
             continue;
           }
           mapped.warranty_expiry_date = wd;
