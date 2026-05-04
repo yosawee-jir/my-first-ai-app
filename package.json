@@ -1,0 +1,11 @@
+{
+  "name": "equipment-manager",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently --names \"backend,frontend\" \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "install:all": "npm install --prefix backend && npm install --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

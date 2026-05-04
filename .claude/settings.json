@@ -1,0 +1,22 @@
+{
+  "defaultMode": "acceptEdits",
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "Bash(del *)",
+      "Bash(format *)"
+    ],
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(npm run *)",
+      "Bash(npm test*)",
+      "Bash(node *)",
+      "Bash(docker compose *)"
+    ]
+  }
+}

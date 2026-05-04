@@ -1,0 +1,9 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+backend/equipment.db
+backend/equipment.db-shm
+backend/equipment.db-wal
+backend/uploads/
+*.log
+.env

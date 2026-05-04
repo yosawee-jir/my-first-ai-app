@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node server.js)",
+      "Bash(curl -s http://localhost:3001/api/health)",
+      "Bash(curl -s -X POST http://localhost:3001/api/equipment -H \"Content-Type: application/json\" -d '{\"name\":\"Test\",\"asset_number\":\"IT-001\"}')",
+      "Bash(curl -s http://localhost:3001/api/equipment/stats)",
+      "Bash(jobs)",
+      "Bash(fuser -k 3001/tcp)",
+      "Bash(fuser -k 3000/tcp 3001/tcp)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3001/api/master-data)",
+      "Bash(curl -s \"http://localhost:3001/api/master-data?category=condition\")",
+      "Bash(pkill -f \"node.*server\")"
+    ]
+  }
+}
