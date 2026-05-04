@@ -5,6 +5,10 @@
 - (none)
 
 ## ✅ Completed
+- Task: Robust CSV parsing — disable cellDates, force string, whitespace trim, month-name date parser
+  - frontend/src/components/AssetTable.jsx — parseDateMMDDYYYY, parseCSVFile, mapRow, payload builder, error messages
+  - Build: ✅ 481 modules, no errors
+
 - Task: Enhanced Error Log — multi-error collection per row + specific messages + enum validation
   - frontend/src/components/AssetTable.jsx — handleImportNew + handleImportUpdate loops refactored
   - Build: ✅ 481 modules, no errors

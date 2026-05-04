@@ -3,6 +3,57 @@
 
 ---
 
+## เพิ่มความแข็งแกร่งของระบบ CSV Import — ปิด Auto-Conversion, Force String, Whitespace Trim และ Month-Name Date Parser
+
+### สิ่งที่ทำ
+แก้ปัญหาสำคัญที่ทำให้การ import ล้มเหลวจากการที่ parser แปลงค่าโดยอัตโนมัติ และเพิ่ม robustness ให้กับการ parse วันที่และการ lookup Asset Code
+
+#### 1. ปิด Auto Date Conversion
+- เปลี่ยน `XLSX.read` จาก `cellDates: true` → `cellDates: false`
+- ผลลัพธ์: date-formatted cells ใน Excel ไม่ถูกแปลงเป็น JS Date object อีกต่อไป → ได้รับเป็น Excel serial number (ตัวเลข) แทน ซึ่ง parser จัดการได้อย่างถูกต้อง
+
+#### 2. Force String — ทุก cell เป็น string ก่อน
+- `mapRow()` ถูก refactor:
+  - `raw[h]` = `String(cell)` ไม่ trim — เก็บค่า **ต้นฉบับ** เพื่อแสดงใน error log CSV
+  - `mapped[key]` = `String(cell).trim()` — ค่าที่ผ่าน trim แล้วสำหรับ validation และ processing
+  - ลบ `DATE_FIELDS` special case ออกทั้งหมด (ทุก field เป็น string เหมือนกัน)
+
+#### 3. Whitespace Sanitization ครบถ้วน
+- ทุก cell ถูก `trim()` ก่อน validation — ขจัด space นำหน้า/ท้ายและ hidden characters
+- Cell ที่กลายเป็นว่างหลัง trim → ถูกถือเป็น "ไม่มีค่า" (Partial Update: ไม่เขียนทับข้อมูลเดิม)
+- Asset Code lookup: map ใน DB ใช้ `.trim().toLowerCase()`, lookup key ใช้ `.toLowerCase()` บนค่าที่ trim แล้ว → case-insensitive และ whitespace-insensitive
+
+#### 4. Month-Name Date Parser
+- `parseDateMMDDYYYY()` ได้รับ refactor ครบ:
+  - ลบ `instanceof Date` branch (ไม่มี Date object แล้ว)
+  - เพิ่ม: ISO format `yyyy-mm-dd` — pass through ตรง
+  - เพิ่ม: Month-name pattern เช่น `"Thu Sep 25 2025 00:00:00 GMT+0700 (Indochina Time)"` → extract `Sep 25 2025` → `2025-09-25` โดยใช้ regex `\b([A-Za-z]{3,9})\s+(\d{1,2})[,\s]+(\d{4})`
+  - คง: Excel serial number และ m/d/yyyy / mm/dd/yyyy
+
+#### 5. Error Messages ที่ชัดเจนขึ้น
+- Date error: `Invalid Date Format: '9/32/2025' in Purchase Date (Expected mm/dd/yyyy)`
+- Not found: `Asset Code "IT-001" not found (Check for hidden spaces or wrong code)`
+- Error log CSV แสดงค่าต้นฉบับ (untrimmed) จาก `raw` object ทุก column
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx`
+  - `parseDateMMDDYYYY()` — ใหม่ทั้งหมด
+  - `parseCSVFile()` — `cellDates: false`
+  - `mapRow()` — raw=untrimmed, mapped=trimmed, ลบ DATE_FIELDS
+  - `handleImportUpdate` payload builder — simplify เป็น `if (v !== '') payload[k] = v`
+  - Date error messages — ทั้ง handleImportNew และ handleImportUpdate
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- ไม่มี "Thu Sep 25 2025..." เกิดขึ้นอีก — ทุก date cell ถูกอ่านเป็น string/number
+- ช่องว่างนำหน้า/ท้ายใน Asset Code และฟิลด์อื่น ไม่ทำให้ lookup ล้มเหลวอีก
+- Error log CSV แสดงค่าดิบจากไฟล์ต้นฉบับ (ไม่ผ่าน transform) เพื่อให้แก้ไขและ re-upload ได้ทันที
+
+### ความเสี่ยง / หมายเหตุ
+- Month-name regex: ถ้า cell มีข้อความเหมือนชื่อเดือน (เช่น "March" เป็นชื่อสถานที่) อาจ parse ผิด — risk ต่ำมากในบริบท asset management
+- Build: ✅ 481 modules, no errors
+
+---
+
 ## ปรับปรุง Error Log ให้แสดงเหตุผลที่ชัดเจนและรวบรวมหลาย error ต่อแถว
 
 ### สิ่งที่ทำ

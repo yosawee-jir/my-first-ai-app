@@ -56,21 +56,14 @@ function excelSerialToMMDDYYYY(serial) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
+// All cell values arrive here as already-trimmed strings (no Date objects).
 function parseDateMMDDYYYY(val) {
   if (!val && val !== 0) return '';
-
-  // JS Date object — XLSX returns these when cellDates:true is set
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return null;
-    const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(val.getUTCDate()).padStart(2, '0');
-    return `${val.getUTCFullYear()}-${mm}-${dd}`;
-  }
 
   const s = String(val).trim();
   if (!s) return '';
 
-  // Excel serial number — integer or decimal (e.g. 45925 or "45925.0000462963")
+  // Excel serial number (numeric string, e.g. "46120" or "46120.0004")
   if (/^\d+(\.\d+)?$/.test(s)) {
     const converted = excelSerialToMMDDYYYY(s);
     const m = converted.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -78,11 +71,27 @@ function parseDateMMDDYYYY(val) {
     return `${m[3]}-${m[1]}-${m[2]}`;
   }
 
-  // m/d/yyyy or mm/dd/yyyy — with or without leading zeros (Excel default string export)
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const [, mm, dd, yyyy] = m;
-  return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  // mm/dd/yyyy or m/d/yyyy (CSV string with or without leading zeros)
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    const [, mm, dd, yyyy] = slash;
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+
+  // yyyy-mm-dd (ISO) — already in backend format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // Complex strings like "Thu Sep 25 2025 00:00:00 GMT+0700 (Indochina Time)"
+  // Find month-name + day + year anywhere in the string
+  const MONTHS_MAP = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+  const mth = s.match(/\b([A-Za-z]{3,9})\s+(\d{1,2})[,\s]+(\d{4})/);
+  if (mth) {
+    const monthNum = MONTHS_MAP[mth[1].toLowerCase().slice(0, 3)];
+    if (monthNum)
+      return `${mth[3]}-${String(monthNum).padStart(2, '0')}-${mth[2].padStart(2, '0')}`;
+  }
+
+  return null;
 }
 
 function downloadErrorLogCSV(errorRows, originalHeaders) {
@@ -285,7 +294,9 @@ export default function AssetTable({ onRefresh }) {
 
   // ── Shared CSV parse helper ────────────────────────────────────────────────
   function parseCSVFile(buffer) {
-    const wb   = XLSX.read(buffer, { type: 'array', cellDates: true });
+    // cellDates:false — keep date cells as numeric serials, never JS Date objects.
+    // raw:true — keep numbers as numbers; we convert every cell to string ourselves.
+    const wb   = XLSX.read(buffer, { type: 'array', cellDates: false });
     const ws   = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
     if (rows.length < 2) return null;
@@ -298,14 +309,19 @@ export default function AssetTable({ onRefresh }) {
   }
 
   function mapRow(rows, rawHeaders, fieldKeys, i) {
+    // raw: original cell value as string (untrimmed) — preserved for error log download
     const raw = {};
-    rawHeaders.forEach((h, idx) => { raw[h] = String(rows[i][idx] ?? '').trim(); });
-    const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
+    rawHeaders.forEach((h, idx) => {
+      const cell = rows[i][idx];
+      raw[h] = (cell === null || cell === undefined) ? '' : String(cell);
+    });
+
+    // mapped: every cell trimmed + converted to string (empty after trim → treated as not provided)
     const mapped = {};
     fieldKeys.forEach((key, idx) => {
       if (!key) return;
       const cell = rows[i][idx];
-      mapped[key] = DATE_FIELDS.has(key) ? (cell ?? '') : String(cell ?? '').trim();
+      mapped[key] = (cell === null || cell === undefined) ? '' : String(cell).trim();
     });
     return { raw, mapped };
   }
@@ -375,24 +391,18 @@ export default function AssetTable({ onRefresh }) {
 
         // 4. Purchase Date parse
         let pdParsed = null;
-        if (mapped.purchase_date || mapped.purchase_date === 0) {
+        if (mapped.purchase_date) {
           pdParsed = parseDateMMDDYYYY(mapped.purchase_date);
-          if (pdParsed === null) {
-            const dv = mapped.purchase_date instanceof Date
-              ? mapped.purchase_date.toLocaleDateString() : String(mapped.purchase_date);
-            rowErrors.push(`Invalid Purchase Date '${dv}' — expected mm/dd/yyyy format`);
-          }
+          if (pdParsed === null)
+            rowErrors.push(`Invalid Date Format: '${mapped.purchase_date}' in Purchase Date (Expected mm/dd/yyyy)`);
         }
 
         // 5. Warranty Date parse
         let wdParsed = null;
         if (mapped.warranty_expiry_date) {
           wdParsed = parseDateMMDDYYYY(mapped.warranty_expiry_date);
-          if (wdParsed === null) {
-            const dv = mapped.warranty_expiry_date instanceof Date
-              ? mapped.warranty_expiry_date.toLocaleDateString() : String(mapped.warranty_expiry_date);
-            rowErrors.push(`Invalid Warranty Expiry Date '${dv}' — expected mm/dd/yyyy format`);
-          }
+          if (wdParsed === null)
+            rowErrors.push(`Invalid Date Format: '${mapped.warranty_expiry_date}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
         }
 
         // 6. Duplicate Asset Code
@@ -479,22 +489,15 @@ export default function AssetTable({ onRefresh }) {
           continue;
         }
 
-        const existing = assetByCode[mapped.asset_code.trim().toLowerCase()];
+        const existing = assetByCode[mapped.asset_code.toLowerCase()];
         if (!existing) {
-          errorRows.push({ raw, reason: `Asset Code "${mapped.asset_code}" not found in system` });
+          errorRows.push({ raw, reason: `Asset Code "${mapped.asset_code}" not found (Check for hidden spaces or wrong code)` });
           continue;
         }
 
-        // Build payload: only non-empty CSV fields
+        // Build payload: only non-empty trimmed fields (empty string = "not provided" = keep existing)
         const payload = {};
-        Object.entries(mapped).forEach(([k, v]) => {
-          const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
-          if (DATE_FIELDS.has(k)) {
-            if (v !== '' && v !== null && v !== undefined) payload[k] = v;
-          } else if (v !== '' && v !== null && v !== undefined) {
-            payload[k] = v;
-          }
-        });
+        Object.entries(mapped).forEach(([k, v]) => { if (v !== '') payload[k] = v; });
 
         const rowErrors = [];
 
@@ -508,24 +511,18 @@ export default function AssetTable({ onRefresh }) {
 
         // Purchase Date parse
         let pdParsed = undefined;
-        if (payload.purchase_date !== undefined) {
+        if (payload.purchase_date) {
           pdParsed = parseDateMMDDYYYY(payload.purchase_date);
-          if (pdParsed === null) {
-            const dv = payload.purchase_date instanceof Date
-              ? payload.purchase_date.toLocaleDateString() : String(payload.purchase_date);
-            rowErrors.push(`Invalid Purchase Date '${dv}' — expected mm/dd/yyyy format`);
-          }
+          if (pdParsed === null)
+            rowErrors.push(`Invalid Date Format: '${payload.purchase_date}' in Purchase Date (Expected mm/dd/yyyy)`);
         }
 
         // Warranty Date parse
         let wdParsed = undefined;
-        if (payload.warranty_expiry_date !== undefined) {
+        if (payload.warranty_expiry_date) {
           wdParsed = parseDateMMDDYYYY(payload.warranty_expiry_date);
-          if (wdParsed === null) {
-            const dv = payload.warranty_expiry_date instanceof Date
-              ? payload.warranty_expiry_date.toLocaleDateString() : String(payload.warranty_expiry_date);
-            rowErrors.push(`Invalid Warranty Expiry Date '${dv}' — expected mm/dd/yyyy format`);
-          }
+          if (wdParsed === null)
+            rowErrors.push(`Invalid Date Format: '${payload.warranty_expiry_date}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
         }
 
         // Auto stock_status from staff
