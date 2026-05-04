@@ -46,29 +46,39 @@ const MANDATORY_CSV_LABELS = {
   purchase_date: 'Purchase Date',
 };
 
-function excelSerialToMMDDYYYY(serial) {
-  // Excel epoch is Jan 1 1900 = serial 1, with an off-by-one leap-year bug fixed by -25569
-  const utcMs = (Math.floor(parseFloat(serial)) - 25569) * 86400 * 1000;
-  const d = new Date(utcMs);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const yyyy = d.getUTCFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+// Fields where XLSX may return numeric Excel serials — preserve the number type through mapRow
+const DATE_FIELDS = new Set(['purchase_date', 'warranty_expiry_date']);
+
+// Readable label for error messages: number → integer string, else keep as-is
+function fmtDateVal(v) {
+  return typeof v === 'number' ? String(Math.floor(v)) : String(v);
 }
 
-// All cell values arrive here as already-trimmed strings (no Date objects).
+function excelSerialToISO(serial) {
+  // Excel epoch Jan 1 1900 = serial 1; -25569 corrects to Unix epoch
+  const utcMs = (Math.floor(serial) - 25569) * 86400 * 1000;
+  const d = new Date(utcMs);
+  if (isNaN(d.getTime())) return null;
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+}
+
 function parseDateMMDDYYYY(val) {
+  if (val === null || val === undefined || val === '') return '';
   if (!val && val !== 0) return '';
+
+  // Numeric type: Excel serial number (e.g. 45925 or 45925.0000462963)
+  if (typeof val === 'number') {
+    return excelSerialToISO(val);
+  }
 
   const s = String(val).trim();
   if (!s) return '';
 
-  // Excel serial number (numeric string, e.g. "46120" or "46120.0004")
+  // Numeric string (serialised by String() before reaching here)
   if (/^\d+(\.\d+)?$/.test(s)) {
-    const converted = excelSerialToMMDDYYYY(s);
-    const m = converted.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!m) return null;
-    return `${m[3]}-${m[1]}-${m[2]}`;
+    return excelSerialToISO(parseFloat(s));
   }
 
   // mm/dd/yyyy or m/d/yyyy (CSV string with or without leading zeros)
@@ -316,12 +326,18 @@ export default function AssetTable({ onRefresh }) {
       raw[h] = (cell === null || cell === undefined) ? '' : String(cell);
     });
 
-    // mapped: every cell trimmed + converted to string (empty after trim → treated as not provided)
+    // mapped: trimmed strings; date fields keep numeric type so parseDateMMDDYYYY gets the raw serial
     const mapped = {};
     fieldKeys.forEach((key, idx) => {
       if (!key) return;
       const cell = rows[i][idx];
-      mapped[key] = (cell === null || cell === undefined) ? '' : String(cell).trim();
+      if (cell === null || cell === undefined) {
+        mapped[key] = '';
+      } else if (typeof cell === 'number' && DATE_FIELDS.has(key)) {
+        mapped[key] = cell;
+      } else {
+        mapped[key] = String(cell).trim();
+      }
     });
     return { raw, mapped };
   }
@@ -391,18 +407,18 @@ export default function AssetTable({ onRefresh }) {
 
         // 4. Purchase Date parse
         let pdParsed = null;
-        if (mapped.purchase_date) {
+        if (mapped.purchase_date || mapped.purchase_date === 0) {
           pdParsed = parseDateMMDDYYYY(mapped.purchase_date);
           if (pdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${mapped.purchase_date}' in Purchase Date (Expected mm/dd/yyyy)`);
+            rowErrors.push(`Invalid Date Format: '${fmtDateVal(mapped.purchase_date)}' in Purchase Date (Expected mm/dd/yyyy)`);
         }
 
         // 5. Warranty Date parse
         let wdParsed = null;
-        if (mapped.warranty_expiry_date) {
+        if (mapped.warranty_expiry_date || mapped.warranty_expiry_date === 0) {
           wdParsed = parseDateMMDDYYYY(mapped.warranty_expiry_date);
           if (wdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${mapped.warranty_expiry_date}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
+            rowErrors.push(`Invalid Date Format: '${fmtDateVal(mapped.warranty_expiry_date)}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
         }
 
         // 6. Duplicate Asset Code
@@ -511,18 +527,18 @@ export default function AssetTable({ onRefresh }) {
 
         // Purchase Date parse
         let pdParsed = undefined;
-        if (payload.purchase_date) {
+        if (payload.purchase_date || payload.purchase_date === 0) {
           pdParsed = parseDateMMDDYYYY(payload.purchase_date);
           if (pdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${payload.purchase_date}' in Purchase Date (Expected mm/dd/yyyy)`);
+            rowErrors.push(`Invalid Date Format: '${fmtDateVal(payload.purchase_date)}' in Purchase Date (Expected mm/dd/yyyy)`);
         }
 
         // Warranty Date parse
         let wdParsed = undefined;
-        if (payload.warranty_expiry_date) {
+        if (payload.warranty_expiry_date || payload.warranty_expiry_date === 0) {
           wdParsed = parseDateMMDDYYYY(payload.warranty_expiry_date);
           if (wdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${payload.warranty_expiry_date}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
+            rowErrors.push(`Invalid Date Format: '${fmtDateVal(payload.warranty_expiry_date)}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
         }
 
         // Auto stock_status from staff

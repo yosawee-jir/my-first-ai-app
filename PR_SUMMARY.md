@@ -3,6 +3,31 @@
 
 ---
 
+## [2026-05-04] Fix: รองรับ Excel Serial Date ใน CSV Import
+
+### สิ่งที่ทำ
+- เพิ่ม `DATE_FIELDS` set เพื่อระบุฟิลด์ที่เป็นวันที่ (`purchase_date`, `warranty_expiry_date`)
+- เพิ่ม `fmtDateVal(v)` helper สำหรับแสดงค่าวันที่ใน Error Log อย่างอ่านง่าย (`number → integer string`)
+- แทนที่ `excelSerialToMMDDYYYY` ด้วย `excelSerialToISO` ที่ return format `yyyy-mm-dd` โดยตรง
+- อัปเดต `parseDateMMDDYYYY` ให้ตรวจ `typeof val === 'number'` ก่อนเป็นอันดับแรก เพื่อแปลง Excel serial number ได้ถูกต้องก่อนที่จะแปลงเป็น string
+- อัปเดต `mapRow` ให้เก็บค่า numeric type ไว้สำหรับฟิลด์ใน `DATE_FIELDS` แทนที่จะแปลงเป็น string ก่อน
+- อัปเดต error message ใน `handleImportNew` และ `handleImportUpdate` ให้ใช้ `fmtDateVal()` แสดงเลข serial เป็น integer เช่น `Invalid Date Format: '45925' in Purchase Date`
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx`
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- Excel ไฟล์ที่มี date cell ถูก format เป็น Date column (ไม่ใช่ Text) จะถูกอ่านเป็น numeric serial เช่น `45925.0000462963` และแปลงเป็นวันที่ถูกต้องโดยอัตโนมัติ
+- ไม่ต้อง format column เป็น Text ใน Excel ก่อน import อีกต่อไป
+- Error Log แสดงเลข serial เป็น integer ที่อ่านง่าย เช่น `Invalid Date Format: '45925' in Purchase Date (Expected mm/dd/yyyy)`
+- `parseDateMMDDYYYY` รองรับ 4 รูปแบบ: numeric type, numeric string, `mm/dd/yyyy`, ISO `yyyy-mm-dd`, และ month-name string
+
+### ความเสี่ยง / หมายเหตุ
+- `Math.floor()` ตัด decimal ออก (ส่วนของเวลา) จึงใช้เฉพาะวันที่เท่านั้น — เป็น behavior ที่ต้องการ
+- Build: ✅ 481 modules, no errors
+
+---
+
 ## เพิ่มความแข็งแกร่งของระบบ CSV Import — ปิด Auto-Conversion, Force String, Whitespace Trim และ Month-Name Date Parser
 
 ### สิ่งที่ทำ

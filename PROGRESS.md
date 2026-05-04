@@ -5,6 +5,11 @@
 - (none)
 
 ## ✅ Completed
+- Task: Fix Excel Serial Date handling in CSV Import
+  - frontend/src/components/AssetTable.jsx — DATE_FIELDS set, fmtDateVal(), excelSerialToISO(), parseDateMMDDYYYY numeric branch, mapRow preserves number type for date fields, error messages use fmtDateVal()
+  - Build: ✅ 481 modules, no errors
+
+## ✅ Completed
 - Task: Robust CSV parsing — disable cellDates, force string, whitespace trim, month-name date parser
   - frontend/src/components/AssetTable.jsx — parseDateMMDDYYYY, parseCSVFile, mapRow, payload builder, error messages
   - Build: ✅ 481 modules, no errors
