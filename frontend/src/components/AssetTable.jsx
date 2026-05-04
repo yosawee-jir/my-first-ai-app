@@ -249,7 +249,12 @@ export default function AssetTable({ onRefresh }) {
       }
 
       const rawHeaders  = rows[0].map(h => String(h));
-      const normHeaders = rawHeaders.map(h => h.replace(/\s*\*.*$/, '').trim().toLowerCase());
+      const normHeaders = rawHeaders.map(h =>
+        h.replace(/\s*\*.*$/, '')       // strip * and everything after (mandatory markers)
+         .replace(/\s*\([^)]*\)/g, '')  // strip (...) parenthetical hints like (mm/dd/yyyy)
+         .trim()
+         .toLowerCase()
+      );
       const fieldKeys   = normHeaders.map(h => CSV_HEADER_MAP[h] || null);
 
       // existing asset_code + serial_number sets for dup check
