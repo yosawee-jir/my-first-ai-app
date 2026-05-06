@@ -5,6 +5,11 @@
 - (none)
 
 ## ✅ Completed
+- Task: Better Error Log — เพิ่ม "How to Fix" column + error messages ที่เข้าใจง่ายใน Import New & Bulk Update
+  - frontend/src/components/AssetTable.jsx — translateBackendError(), downloadErrorLogCSV(), handleImportNew rowErrors {msg,fix}, handleImportUpdate rowErrors {msg,fix} + backend catch
+  - Build: ✅ 481 modules, no errors
+
+## ✅ Completed
 - Task: Fix Excel serial dates leaking as numbers into Bulk Update payload
   - frontend/src/components/AssetTable.jsx — mapRow: convert numeric date serials to ISO string via excelSerialToISO() immediately, so mapped always has strings for date fields
   - Build: ✅ 481 modules, no errors

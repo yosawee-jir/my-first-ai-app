@@ -104,10 +104,26 @@ function parseDateMMDDYYYY(val) {
   return null;
 }
 
+function translateBackendError(msg) {
+  if (!msg) return { reason: 'Unknown error from server', fix: 'Try again or contact administrator' };
+  const m = msg.toLowerCase();
+  if (m.includes('asset code already exists') || (m.includes('unique') && m.includes('asset_code')))
+    return { reason: 'Asset Code already exists in the system', fix: 'Change to a unique Asset Code and try again' };
+  if (m.includes('serial number already exists') || (m.includes('unique') && m.includes('serial')))
+    return { reason: 'Serial Number already used by another asset', fix: 'Enter a unique Serial Number for this asset' };
+  if (m.includes('unique'))
+    return { reason: `Duplicate value rejected by system: ${msg}`, fix: 'Ensure Asset Code and Serial Number are unique' };
+  if (m.includes('no column named'))
+    return { reason: `Database schema error: ${msg}`, fix: 'Contact administrator — database may need to be updated' };
+  if (m.includes('not null') || m.includes('required'))
+    return { reason: `Missing required value: ${msg}`, fix: 'Fill in all mandatory fields (marked with * in the template)' };
+  return { reason: `Server error: ${msg}`, fix: 'Try again. If the problem persists, contact administrator.' };
+}
+
 function downloadErrorLogCSV(errorRows, originalHeaders) {
   const rows = [
-    ['Error Reason', ...originalHeaders],
-    ...errorRows.map(r => [r.reason, ...originalHeaders.map(h => r.raw[h] ?? '')]),
+    ['Error Reason', 'How to Fix', ...originalHeaders],
+    ...errorRows.map(r => [r.reason, r.fix ?? '', ...originalHeaders.map(h => r.raw[h] ?? '')]),
   ];
   const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -386,33 +402,33 @@ export default function AssetTable({ onRefresh }) {
         const { raw, mapped } = mapRow(rows, rawHeaders, fieldKeys, i);
         if (Object.values(raw).every(v => !v)) continue;
 
-        const rowErrors = [];
+        const rowErrors = []; // [{msg, fix}]
 
         // Auto stock_status from staff
         const hasStaff = mapped.assigned_user_name?.trim() || mapped.assigned_employee_id?.trim();
         if (hasStaff && !mapped.stock_status) mapped.stock_status = 'Checked Out';
         if (!mapped.stock_status) mapped.stock_status = 'Available';
 
-        // 1. Mandatory fields — one error message per missing field
+        // 1. Mandatory fields
         MANDATORY_NEW_FIELDS.forEach(f => {
           if (!mapped[f] && mapped[f] !== 0)
-            rowErrors.push(`Required field "${MANDATORY_CSV_LABELS[f]}" is missing`);
+            rowErrors.push({ msg: `Required field "${MANDATORY_CSV_LABELS[f]}" is missing`, fix: `Fill in the "${MANDATORY_CSV_LABELS[f]}" column — it is mandatory for new assets` });
         });
 
         // 2. Stock Status enum
         if (mapped.stock_status && !VALID_STOCKS.includes(mapped.stock_status))
-          rowErrors.push(`Stock Status must be 'Available' or 'Checked Out' (got: '${mapped.stock_status}')`);
+          rowErrors.push({ msg: `Invalid Stock Status: "${mapped.stock_status}"`, fix: `Change to exactly: Available  or  Checked Out` });
 
         // 3. Condition enum
         if (mapped.status && !VALID_CONDITIONS.includes(mapped.status))
-          rowErrors.push(`Condition must be one of: ${VALID_CONDITIONS.join(', ')} (got: '${mapped.status}')`);
+          rowErrors.push({ msg: `Invalid Condition: "${mapped.status}"`, fix: `Change to one of: Ready, Broken, Under Repair, Retired` });
 
         // 4. Purchase Date parse
         let pdParsed = null;
         if (mapped.purchase_date || mapped.purchase_date === 0) {
           pdParsed = parseDateMMDDYYYY(mapped.purchase_date);
           if (pdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${fmtDateVal(mapped.purchase_date)}' in Purchase Date (Expected mm/dd/yyyy)`);
+            rowErrors.push({ msg: `Cannot read Purchase Date: "${fmtDateVal(mapped.purchase_date)}"`, fix: `Enter date as mm/dd/yyyy — example: 12/31/2024` });
         }
 
         // 5. Warranty Date parse
@@ -420,25 +436,25 @@ export default function AssetTable({ onRefresh }) {
         if (mapped.warranty_expiry_date || mapped.warranty_expiry_date === 0) {
           wdParsed = parseDateMMDDYYYY(mapped.warranty_expiry_date);
           if (wdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${fmtDateVal(mapped.warranty_expiry_date)}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
+            rowErrors.push({ msg: `Cannot read Warranty Expiry Date: "${fmtDateVal(mapped.warranty_expiry_date)}"`, fix: `Enter date as mm/dd/yyyy — example: 12/31/2027` });
         }
 
         // 6. Duplicate Asset Code
         const codeKey = mapped.asset_code?.toLowerCase() || '';
         if (codeKey && (existingCodes.has(codeKey) || batchCodes.has(codeKey)))
-          rowErrors.push(`Duplicate Asset Code: ${mapped.asset_code}`);
+          rowErrors.push({ msg: `Duplicate Asset Code: "${mapped.asset_code}" already exists in the system or appears twice in this file`, fix: `Remove the duplicate row or use a different Asset Code` });
 
         // 7. Duplicate Serial Number
         const snKey = mapped.serial_number?.toLowerCase() || '';
         if (snKey && (existingSerials.has(snKey) || batchSerials.has(snKey)))
-          rowErrors.push(`Duplicate Serial Number: ${mapped.serial_number}`);
+          rowErrors.push({ msg: `Duplicate Serial Number: "${mapped.serial_number}" already used`, fix: `Each asset must have a unique Serial Number` });
 
         // 8. Checked Out without staff name
         if (mapped.stock_status === 'Checked Out' && !mapped.assigned_user_name?.trim())
-          rowErrors.push('Staff Name is required when Stock Status is Checked Out');
+          rowErrors.push({ msg: `Stock Status is "Checked Out" but Staff Name is empty`, fix: `Fill in the Staff Name column, or change Stock Status to Available` });
 
         if (rowErrors.length > 0) {
-          errorRows.push({ raw, reason: rowErrors.join('; ') });
+          errorRows.push({ raw, reason: rowErrors.map(e => e.msg).join('; '), fix: rowErrors.map(e => e.fix).join('; ') });
           continue;
         }
 
@@ -457,8 +473,9 @@ export default function AssetTable({ onRefresh }) {
           batchSerials.add(snKey);
           imported++;
         } catch (err) {
-          const msg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Save failed';
-          errorRows.push({ raw, reason: msg });
+          const rawMsg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Save failed';
+          const { reason, fix } = translateBackendError(rawMsg);
+          errorRows.push({ raw, reason, fix });
         }
       }
 
@@ -505,13 +522,13 @@ export default function AssetTable({ onRefresh }) {
 
         // Asset Code is the lookup key — must exist before anything else
         if (!mapped.asset_code?.trim()) {
-          errorRows.push({ raw, reason: 'Required field "Asset Code" is missing' });
+          errorRows.push({ raw, reason: 'Required field "Asset Code" is missing', fix: 'Fill in the "Asset Code" column — it is required to identify which asset to update' });
           continue;
         }
 
         const existing = assetByCode[mapped.asset_code.toLowerCase()];
         if (!existing) {
-          errorRows.push({ raw, reason: `Asset Code "${mapped.asset_code}" not found (Check for hidden spaces or wrong code)` });
+          errorRows.push({ raw, reason: `Asset Code "${mapped.asset_code}" not found in the system`, fix: 'Check for typos or hidden spaces. Use the exact Asset Code shown in the system.' });
           continue;
         }
 
@@ -519,22 +536,22 @@ export default function AssetTable({ onRefresh }) {
         const payload = {};
         Object.entries(mapped).forEach(([k, v]) => { if (v !== '') payload[k] = v; });
 
-        const rowErrors = [];
+        const rowErrors = []; // [{msg, fix}]
 
         // Enum: Stock Status (if provided)
         if (payload.stock_status && !VALID_STOCKS_U.includes(payload.stock_status))
-          rowErrors.push(`Stock Status must be 'Available' or 'Checked Out' (got: '${payload.stock_status}')`);
+          rowErrors.push({ msg: `Invalid Stock Status: "${payload.stock_status}"`, fix: `Change to exactly: Available  or  Checked Out` });
 
         // Enum: Condition (if provided)
         if (payload.status && !VALID_CONDITIONS_U.includes(payload.status))
-          rowErrors.push(`Condition must be one of: ${VALID_CONDITIONS_U.join(', ')} (got: '${payload.status}')`);
+          rowErrors.push({ msg: `Invalid Condition: "${payload.status}"`, fix: `Change to one of: Ready, Broken, Under Repair, Retired` });
 
         // Purchase Date parse
         let pdParsed = undefined;
         if (payload.purchase_date || payload.purchase_date === 0) {
           pdParsed = parseDateMMDDYYYY(payload.purchase_date);
           if (pdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${fmtDateVal(payload.purchase_date)}' in Purchase Date (Expected mm/dd/yyyy)`);
+            rowErrors.push({ msg: `Cannot read Purchase Date: "${fmtDateVal(payload.purchase_date)}"`, fix: `Enter date as mm/dd/yyyy — example: 12/31/2024` });
         }
 
         // Warranty Date parse
@@ -542,7 +559,7 @@ export default function AssetTable({ onRefresh }) {
         if (payload.warranty_expiry_date || payload.warranty_expiry_date === 0) {
           wdParsed = parseDateMMDDYYYY(payload.warranty_expiry_date);
           if (wdParsed === null)
-            rowErrors.push(`Invalid Date Format: '${fmtDateVal(payload.warranty_expiry_date)}' in Warranty Expiry Date (Expected mm/dd/yyyy)`);
+            rowErrors.push({ msg: `Cannot read Warranty Expiry Date: "${fmtDateVal(payload.warranty_expiry_date)}"`, fix: `Enter date as mm/dd/yyyy — example: 12/31/2027` });
         }
 
         // Auto stock_status from staff
@@ -553,11 +570,11 @@ export default function AssetTable({ onRefresh }) {
         const effectiveStock = payload.stock_status || existing.stock_status;
         if (effectiveStock === 'Checked Out') {
           const effectiveUser = payload.assigned_user_name?.trim() || existing.assigned_user_name?.trim();
-          if (!effectiveUser) rowErrors.push('Staff Name is required when Stock Status is Checked Out');
+          if (!effectiveUser) rowErrors.push({ msg: `Stock Status is "Checked Out" but Staff Name is empty`, fix: `Fill in the Staff Name column, or change Stock Status to Available` });
         }
 
         if (rowErrors.length > 0) {
-          errorRows.push({ raw, reason: rowErrors.join('; ') });
+          errorRows.push({ raw, reason: rowErrors.map(e => e.msg).join('; '), fix: rowErrors.map(e => e.fix).join('; ') });
           continue;
         }
 
@@ -574,8 +591,9 @@ export default function AssetTable({ onRefresh }) {
           await updateEquipmentPartial(existing.id, fd);
           imported++;
         } catch (err) {
-          const msg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Update failed';
-          errorRows.push({ raw, reason: msg });
+          const rawMsg = err.response?.data?.errors?.join('; ') || err.response?.data?.error || 'Update failed';
+          const { reason, fix } = translateBackendError(rawMsg);
+          errorRows.push({ raw, reason, fix });
         }
       }
 

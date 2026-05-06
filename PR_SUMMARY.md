@@ -3,6 +3,35 @@
 
 ---
 
+## [2026-05-04] Improve: Error Log — เพิ่มคอลัมน์ "How to Fix" และ error message ที่เข้าใจง่าย
+
+### สิ่งที่ทำ
+- เพิ่มฟังก์ชัน `translateBackendError(msg)` เพื่อแปล error จาก backend (เช่น UNIQUE constraint, NOT NULL) เป็นข้อความภาษาอังกฤษที่เข้าใจง่ายพร้อมวิธีแก้ไข
+- อัปเดต `downloadErrorLogCSV` ให้มีคอลัมน์ "How to Fix" ต่อท้าย "Error Reason" ในไฟล์ error log ที่ดาวน์โหลด
+- เปลี่ยน `rowErrors` ใน `handleImportNew` และ `handleImportUpdate` จาก string array เป็น `{msg, fix}` object array เพื่อรองรับทั้ง reason และ fix
+- ปรับ error message ทุกข้อใน Import New และ Bulk Update ให้ระบุ:
+  - ปัญหาที่เกิดขึ้น (เช่น "Invalid Stock Status: 'aaa'")
+  - วิธีแก้ไขที่ชัดเจน (เช่น "Change to exactly: Available or Checked Out")
+- อัปเดต backend catch ใน `handleImportUpdate` ให้ใช้ `translateBackendError` เหมือนกับ `handleImportNew`
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx`
+  - เพิ่ม: `translateBackendError()`
+  - แก้ไข: `downloadErrorLogCSV()` — เพิ่ม "How to Fix" column
+  - แก้ไข: `handleImportNew` — rowErrors เป็น `{msg, fix}` objects, backend catch ใช้ `translateBackendError`
+  - แก้ไข: `handleImportUpdate` — rowErrors เป็น `{msg, fix}` objects, backend catch ใช้ `translateBackendError`, "Asset Code missing" และ "Asset Code not found" มี fix message
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- ไฟล์ error log ที่ดาวน์โหลดมีคอลัมน์เพิ่มเติม "How to Fix" ซึ่งให้คำแนะนำที่ชัดเจนว่าต้องทำอะไรเพื่อแก้ปัญหา
+- Error message ใน popup modal และ error log ระบุปัญหาเฉพาะเจาะจง (เช่น ค่าที่ invalid, ฟิลด์ที่หายไป) แทนที่จะเป็น generic message
+- ผู้ใช้สามารถเข้าใจสาเหตุของ error และแก้ไข CSV ได้โดยไม่ต้องติดต่อผู้ดูแลระบบ
+
+### ความเสี่ยง / หมายเหตุ
+- ไม่มีการเปลี่ยนแปลง logic การ import หรือ validation — เปลี่ยนแค่รูปแบบของ error message
+- Build: ✅ 481 modules, no errors
+
+---
+
 ## [2026-05-06] Fix: Excel Serial Date ยังคงปรากฏใน Bulk Update — แปลงตั้งแต่ mapRow
 
 ### สิ่งที่ทำ
