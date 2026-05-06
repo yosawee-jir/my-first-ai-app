@@ -5,6 +5,10 @@
 - (none)
 
 ## ✅ Completed
+- Task: Fix Excel serial dates leaking as numbers into Bulk Update payload
+  - frontend/src/components/AssetTable.jsx — mapRow: convert numeric date serials to ISO string via excelSerialToISO() immediately, so mapped always has strings for date fields
+  - Build: ✅ 481 modules, no errors
+
 - Task: Fix Bulk Update "Asset Code not found" due to stale assets state
   - frontend/src/components/AssetTable.jsx — handleImportUpdate: replaced assets state lookup with fresh getEquipment() call
   - Build: ✅ 481 modules, no errors

@@ -326,7 +326,7 @@ export default function AssetTable({ onRefresh }) {
       raw[h] = (cell === null || cell === undefined) ? '' : String(cell);
     });
 
-    // mapped: trimmed strings; date fields keep numeric type so parseDateMMDDYYYY gets the raw serial
+    // mapped: trimmed strings; date serial numbers are converted to ISO yyyy-mm-dd immediately
     const mapped = {};
     fieldKeys.forEach((key, idx) => {
       if (!key) return;
@@ -334,7 +334,9 @@ export default function AssetTable({ onRefresh }) {
       if (cell === null || cell === undefined) {
         mapped[key] = '';
       } else if (typeof cell === 'number' && DATE_FIELDS.has(key)) {
-        mapped[key] = cell;
+        // Excel serial → ISO string right here; keeps numeric serials out of payload entirely
+        const iso = excelSerialToISO(cell);
+        mapped[key] = iso ?? String(cell); // fallback to plain string if serial is out of range
       } else {
         mapped[key] = String(cell).trim();
       }

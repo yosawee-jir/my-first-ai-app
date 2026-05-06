@@ -3,6 +3,26 @@
 
 ---
 
+## [2026-05-06] Fix: Excel Serial Date ยังคงปรากฏใน Bulk Update — แปลงตั้งแต่ mapRow
+
+### สิ่งที่ทำ
+- ย้ายการแปลง Excel Serial → ISO string จาก `parseDateMMDDYYYY` มาทำใน `mapRow` โดยตรง
+- `mapped[dateField]` จะเป็น ISO string (`"2025-09-24"`) แทนที่จะเป็น number (`45925.00005`) เสมอ
+- ตัดปัญหาที่ number serial อาจหลุดเข้าไปใน `payload` หรือ `FormData` โดยไม่ถูกแปลง
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx` — `mapRow`: เพิ่ม branch `typeof cell === 'number' && DATE_FIELDS.has(key)` ให้เรียก `excelSerialToISO(cell)` ทันที แทนที่จะเก็บ number ไว้
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- **ก่อนแก้ไข**: `mapped.purchase_date` = `45925.00005` (number) → ส่งผ่านไปยัง `payload` → หากมี edge case ใดทำให้ parsing block ไม่ทำงาน serial number จะถูกส่งไปยัง backend ตรงๆ → Error log แสดง `45925.00005` ในคอลัมน์วันที่
+- **หลังแก้ไข**: `mapped.purchase_date` = `"2025-09-24"` (ISO string) ทันทีใน `mapRow` → `parseDateMMDDYYYY("2025-09-24")` ผ่าน ISO regex → คืนค่าเดิม → ไม่มี number หลุดเข้า payload เลย
+
+### ความเสี่ยง / หมายเหตุ
+- หาก `excelSerialToISO` ล้มเหลว (serial ผิดปกติ) จะ fallback เป็น `String(cell)` เช่น `"45925.00005"` ซึ่ง numeric-string regex จะยังพยายามแปลงอีกครั้ง
+- Build: ✅ 481 modules, no errors
+
+---
+
 ## [2026-05-06] Fix: Bulk Update ไม่พบ Asset Code เนื่องจาก State เก่า
 
 ### สิ่งที่ทำ
