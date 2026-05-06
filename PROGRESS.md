@@ -5,6 +5,10 @@
 - (none)
 
 ## ✅ Completed
+- Task: Fix Bulk Update "Asset Code not found" due to stale assets state
+  - frontend/src/components/AssetTable.jsx — handleImportUpdate: replaced assets state lookup with fresh getEquipment() call
+  - Build: ✅ 481 modules, no errors
+
 - Task: Fix Excel Serial Date handling in CSV Import
   - frontend/src/components/AssetTable.jsx — DATE_FIELDS set, fmtDateVal(), excelSerialToISO(), parseDateMMDDYYYY numeric branch, mapRow preserves number type for date fields, error messages use fmtDateVal()
   - Build: ✅ 481 modules, no errors

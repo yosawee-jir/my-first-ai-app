@@ -485,9 +485,11 @@ export default function AssetTable({ onRefresh }) {
       }
       const { rows, rawHeaders, fieldKeys } = parsed;
 
-      // Build lookup map: asset_code (lowercase) → asset object
+      // Always fetch a fresh asset list — component state may be stale
+      // (e.g. if user clicks Bulk Update immediately after Import New)
+      const freshAssets = await getEquipment();
       const assetByCode = {};
-      assets.forEach(a => { if (a.asset_code) assetByCode[a.asset_code.trim().toLowerCase()] = a; });
+      freshAssets.forEach(a => { if (a.asset_code) assetByCode[a.asset_code.trim().toLowerCase()] = a; });
 
       let imported = 0;
       const errorRows = [];

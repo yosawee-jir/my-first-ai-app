@@ -3,6 +3,24 @@
 
 ---
 
+## [2026-05-06] Fix: Bulk Update ไม่พบ Asset Code เนื่องจาก State เก่า
+
+### สิ่งที่ทำ
+- แก้ไข `handleImportUpdate` ให้เรียก `getEquipment()` โดยตรงแทนการใช้ `assets` state เพื่อ build `assetByCode` lookup
+
+### ไฟล์ที่มีการแก้ไข
+- `frontend/src/components/AssetTable.jsx` — `handleImportUpdate`
+
+### พฤติกรรมที่เปลี่ยนไปของระบบ
+- **ก่อนแก้ไข**: หากผู้ใช้คลิก "Bulk Update" ทันทีหลังจาก "Import New" ยังไม่ทันที่ `load()` (async) จะ refresh `assets` state สำเร็จ — `assetByCode` จะว่างเปล่าหรือไม่มี asset ที่เพิ่งสร้าง ทำให้ทุก row ล้มเหลวด้วย `"Asset Code not found"`
+- **หลังแก้ไข**: `handleImportUpdate` ดึงข้อมูล asset ล่าสุดจาก API โดยตรง (`await getEquipment()`) ก่อนสร้าง lookup map ทุกครั้ง ทำให้ได้ข้อมูลที่ตรงกับ DB เสมอ แม้ state จะยังไม่ refresh
+
+### ความเสี่ยง / หมายเหตุ
+- เพิ่ม 1 API call (GET /api/equipment) ต่อการ Bulk Update 1 ครั้ง — ผลกระทบต่อ performance น้อยมาก
+- Build: ✅ 481 modules, no errors
+
+---
+
 ## [2026-05-04] Fix: รองรับ Excel Serial Date ใน CSV Import
 
 ### สิ่งที่ทำ
