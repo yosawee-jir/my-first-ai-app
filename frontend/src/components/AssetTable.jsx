@@ -85,6 +85,7 @@ function parseDateMMDDYYYY(val) {
   const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slash) {
     const [, mm, dd, yyyy] = slash;
+    if (parseInt(mm, 10) < 1 || parseInt(mm, 10) > 12 || parseInt(dd, 10) < 1 || parseInt(dd, 10) > 31) return null;
     return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
   }
 
