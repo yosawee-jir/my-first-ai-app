@@ -260,8 +260,8 @@ router.put('/:id', upload.single('photo'), (req, res) => {
             .run(eqId, uId, uName || 'Unknown', uDept, uPurpose);
         } else {
           // Same assignee — just sync dept / purpose in place
-          db.prepare('UPDATE checkouts SET department=?, purpose=? WHERE id=?')
-            .run(uDept, uPurpose, active.id);
+          db.prepare('UPDATE checkouts SET employee_id=?, department=?, purpose=? WHERE id=?')
+            .run(uEmpId, uDept, uPurpose, active.id);
         }
 
         const histAction = stockChanged ? 'Checked Out' : (userChanged ? 'Re-assigned' : 'Updated');
